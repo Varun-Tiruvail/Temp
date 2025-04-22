@@ -1,4 +1,3 @@
-
 # Add this import
 from PySide6.QtGui import QIcon
 import sys
@@ -12,179 +11,14 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QPushButton,
                               QDateEdit, QMessageBox, QTableWidgetItem, QCalendarWidget,
                               QFormLayout, QDialog, QTabWidget, QGroupBox)
 from PySide6.QtCore import Qt, QDate
-from PySide6.QtGui import QDropEvent, QDragEnterEvent, QPainterPath, QRegion, QTransform, QColor
-from PySide6.QtWidgets import QPlainTextEdit, QHeaderView, QGraphicsDropShadowEffect
+from PySide6.QtGui import QDropEvent, QDragEnterEvent
+from PySide6.QtWidgets import QPlainTextEdit, QHeaderView
 from PySide6.QtGui import QDoubleValidator
 from io import StringIO  # Import StringIO for text conversion
 # Add these imports at the top
 from openpyxl import Workbook, load_workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
 
-
-# Add these helper functions here, before any class definitions
-def get_cell_value(value):
-    """Convert cell value while preserving type and handling blanks"""
-    if pd.isna(value):
-        return ""  # Return empty string for blank cells
-    if isinstance(value, (int, float)):
-        if value.is_integer():
-            return int(value)
-        return value
-    return str(value)
-
-def populate_table_with_types(table_widget, df):
-    """Populate QTableWidget while preserving data types"""
-    if df is None or df.empty:
-        table_widget.setRowCount(0)
-        table_widget.setColumnCount(0)
-        return
-    
-    table_widget.setRowCount(len(df))
-    table_widget.setColumnCount(len(df.columns))
-    table_widget.setHorizontalHeaderLabels(df.columns)
-    
-    for row in range(len(df)):
-        for col in range(len(df.columns)):
-            value = df.iloc[row, col]
-            item = QTableWidgetItem()
-            
-            # Set alignment based on data type
-            if isinstance(value, (int, float)):
-                item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                if pd.isna(value):  # Handle NaN/NA for numeric columns
-                    item.setText("")
-                else:
-                    item.setData(Qt.DisplayRole, value)  # This preserves numeric type
-            else:
-                item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-                item.setText("" if pd.isna(value) else str(value))
-            
-            table_widget.setItem(row, col, item)
-    
-    table_widget.resizeColumnsToContents()
-
-def extract_table_data(table_widget):
-    """Extract data from QTableWidget while preserving types"""
-    data = []
-    headers = []
-    
-    # Get headers
-    for col in range(table_widget.columnCount()):
-        headers.append(table_widget.horizontalHeaderItem(col).text())
-    
-    # Get data with types
-    for row in range(table_widget.rowCount()):
-        row_data = []
-        for col in range(table_widget.columnCount()):
-            item = table_widget.item(row, col)
-            if item is None or not item.text():
-                row_data.append("")  # Preserve blank cells
-            else:
-                # Try to convert to number if possible
-                text = item.text()
-                try:
-                    # Check if it's an integer
-                    if text.isdigit():
-                        row_data.append(int(text))
-                    # Check if it's a float
-                    elif text.replace(".", "", 1).isdigit():
-                        row_data.append(float(text))
-                    else:
-                        row_data.append(text)
-                except ValueError:
-                    row_data.append(text)
-        data.append(row_data)
-    
-    return pd.DataFrame(data, columns=headers)
-
-
-class TitleBar(QWidget):
-    def __init__(self, parent):
-        super().__init__(parent)
-        self.parent = parent
-        self.setObjectName("titleBar")
-        self.setFixedHeight(45)  # Increased height for better visibility
-        
-        # Set explicit background color and styling
-        
-        
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(5, 3, 5, 3)
-        layout.setSpacing(3)
-        
-        # Title Label
-        self.title_label = QLabel("RAPID ")
-        self.title_label.setObjectName("titleLabel")
-        # self.title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #ffffff;")
-        self.title_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        layout.addWidget(self.title_label)
-        
-        # Spacer
-        layout.addStretch()
-        
-        # Window Controls
-        self.minimize_btn = QPushButton("—")
-        self.minimize_btn.setObjectName("minimizeButton")
-        self.minimize_btn.setFixedSize(30, 25)
-        self.minimize_btn.clicked.connect(parent.showMinimized)
-        
-        self.close_btn = QPushButton("✕")
-        self.close_btn.setObjectName("closeButton")
-        self.close_btn.setFixedSize(30, 25)
-        self.close_btn.clicked.connect(parent.close)
-        
-        layout.addWidget(self.minimize_btn)
-        layout.addWidget(self.close_btn)
-        
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            self.parent.offset = event.globalPosition().toPoint() - self.parent.pos()
-            
-    def mouseMoveEvent(self, event):
-        if self.parent.offset is not None and event.buttons() == Qt.LeftButton:
-            self.parent.move(event.globalPosition().toPoint() - self.parent.offset)
-
-
-class FramelessWindow(QMainWindow):
-    def __init__(self):
-        super().__init__()
-        self.setWindowFlags(Qt.FramelessWindowHint)
-        self.setAttribute(Qt.WA_TranslucentBackground)
-        
-        # Create main container
-        self.main_container = QWidget()
-        self.main_container.setObjectName("mainContainer")
-        self.setCentralWidget(self.main_container)
-        
-        # Create and apply shadow effect
-        self.shadow = QGraphicsDropShadowEffect()
-        self.shadow.setBlurRadius(20)
-        self.shadow.setXOffset(0)
-        self.shadow.setYOffset(0)
-        self.shadow.setColor(QColor(0, 0, 0, 160))
-        self.main_container.setGraphicsEffect(self.shadow)
-        
-        # Main vertical layout
-        self.main_layout = QVBoxLayout(self.main_container)
-        self.main_layout.setContentsMargins(10, 10, 10, 10)  # Add margins for shadow
-        self.main_layout.setSpacing(0)
-        
-        # Add title bar
-        self.title_bar = TitleBar(self)
-        self.main_layout.addWidget(self.title_bar)
-        
-        # Content area
-        self.content_area = QWidget()
-        self.content_area.setObjectName("contentArea")
-        self.main_layout.addWidget(self.content_area)
-
-    def resizeEvent(self, event):
-        # Update rounded corners when resizing
-        path = QPainterPath()
-        path.addRoundedRect(self.rect(), 10, 10)
-        region = QRegion(path.toFillPolygon(QTransform()).toPolygon())
-        self.setMask(region)
-        super().resizeEvent(event)
 
 class LoginWindow(QWidget):
     def __init__(self, excel_path="login_details.xlsx"):
@@ -242,7 +76,7 @@ class LoginWindow(QWidget):
 
 
 # Main window after login
-class MainWindow(FramelessWindow):
+class MainWindow(QMainWindow):
     # def __init__(self):
     #     super().__init__()
     #     self.init_ui()
@@ -251,40 +85,88 @@ class MainWindow(FramelessWindow):
         super().__init__()
         # self.setWindowFlags(Qt.FramelessWindowHint)  # Remove default title bar
         self.init_ui()
-        # self.setWindowTitle("RAPID - Rates Automation Projects Integrated Development")
+        self.setWindowTitle("RAPID - Rates Automation Projects Integrated Development")
 
     def init_ui(self):
         self.setGeometry(100, 100, 800, 600)
-        content_layout = QVBoxLayout(self.content_area)
+        
         # Central widget
-        # central_widget = QWidget()
-        # self.setCentralWidget(central_widget)
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
         
         # Main layout
-        # main_layout = QVBoxLayout(central_widget)
+        main_layout = QVBoxLayout(central_widget)
         
-        # # Window control buttons
-        # self.minimize_btn = QPushButton()
-        # self.close_btn = QPushButton()
-
-        # # Set object names for CSS targeting
-        # self.minimize_btn.setObjectName("minimizeButton")
-        # self.close_btn.setObjectName("closeButton")
+        # Create custom title bar
+        title_bar = QWidget()
+        title_bar.setFixedHeight(30)
+        title_layout = QHBoxLayout(title_bar)
+        title_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Title label
+        title_label = QLabel("RAPID")
+        title_label.setStyleSheet("font-size: 14px; font-weight: bold;")
+        title_layout.addWidget(title_label)
+        
+        # Add spacer
+        title_layout.addStretch()
+        
+        # Window control buttons
+        # self.minimize_btn = QPushButton("-")
+        # self.close_btn = QPushButton("x")
         
         # for btn in [self.minimize_btn, self.close_btn]:
         #     btn.setFixedSize(30, 30)
-        #     btn.setCursor(Qt.PointingHandCursor)
+        #     btn.setStyleSheet("""
+        #         QPushButton {
+        #             border: none;
+        #             font-size: 18px;
+        #         }
+        #         QPushButton:hover {
+        #             background-color: #404040;
+        #         }
+        #     """)
+        
+                # Modify the button text to make it more visible
+
+
+        # # In the title bar button styling section:
+        # for btn in [self.minimize_btn, self.close_btn]:
+        #     btn.setFixedSize(30, 30)
+        #     btn.setStyleSheet("""
+        #         QPushButton {
+        #             border: none;
+        #             font-size: 18px;
+        #             color: #FFFFFF;  /* Explicit text color */
+        #             font-weight: bold;
+        #         }
+        #         QPushButton:hover {
+        #             background-color: #404040;
+        #             color: #FFFFFF;  /* Maintain text color on hover */
+        #         }
+        #     """)
+        # Window control buttons
+        self.minimize_btn = QPushButton()
+        self.close_btn = QPushButton()
+
+        # Set object names for CSS targeting
+        self.minimize_btn.setObjectName("minimizeButton")
+        self.close_btn.setObjectName("closeButton")
+        
+        for btn in [self.minimize_btn, self.close_btn]:
+            btn.setFixedSize(30, 30)
+            btn.setCursor(Qt.PointingHandCursor)
             
 
         
-        # self.minimize_btn.clicked.connect(self.showMinimized)
-        # self.close_btn.clicked.connect(self.close)
+        self.minimize_btn.clicked.connect(self.showMinimized)
+        self.close_btn.clicked.connect(self.close)
         
-        # title_layout.addWidget(self.minimize_btn)
-        # title_layout.addWidget(self.close_btn)
+        title_layout.addWidget(self.minimize_btn)
+        title_layout.addWidget(self.close_btn)
         
-        # # Add to main layout
-        # main_layout.addWidget(title_bar)
+        # Add to main layout
+        main_layout.addWidget(title_bar)
 
         # Create category buttons first
         self.ipv_button = QPushButton("IPV")
@@ -336,8 +218,8 @@ class MainWindow(FramelessWindow):
         self.chatbot_button.clicked.connect(lambda: self.show_not_implemented("AI Chatbot"))
 
         # Add layouts to main layout
-        content_layout.addLayout(button_layout)
-        content_layout .addWidget(self.stacked_widget)    
+        main_layout.addLayout(button_layout)
+        main_layout.addWidget(self.stacked_widget)    
         
     def show_not_implemented(self, feature_name):
         msg = QMessageBox()
@@ -372,11 +254,8 @@ class IPVWidget(QWidget):
         
         # Add widgets to layout
         layout.addWidget(title)
-        layout2 = QHBoxLayout()
-        layout2.addWidget(self.xipv_button)
-        layout2.addWidget(self.yipv_button)
-        layout.addLayout(layout2)
-
+        layout.addWidget(self.xipv_button)
+        layout.addWidget(self.yipv_button)
         
         self.setLayout(layout)
         
@@ -428,7 +307,7 @@ class ReservesWidget(QWidget):
 
 
 # Updated XIPVWindow and related classes
-class XIPVWindow(FramelessWindow):
+class XIPVWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.init_ui()
@@ -440,11 +319,11 @@ class XIPVWindow(FramelessWindow):
         self.setGeometry(200, 200, 800, 600)
         
         # Central widget
-        # central_widget = QWidget()
-        # self.setCentralWidget(central_widget)
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
         
         # Main layout
-        main_layout = QVBoxLayout(self.content_area)
+        main_layout = QVBoxLayout(central_widget)
         
         # Title
         title = QLabel("XIPV Processing")
@@ -848,31 +727,6 @@ class XIPVRemainingTablesDialog(QDialog):
         tab_widget.setLayout(tab_layout)
         return tab_widget
     
-    # def populate_table_widget(self, table_widget, table_data):
-    #     """Populate a QTableWidget with data from a polars DataFrame"""
-    #     if table_data is None or table_data.is_empty():
-    #         table_widget.setRowCount(0)
-    #         table_widget.setColumnCount(0)
-    #         return
-        
-    #     # Convert polars to pandas for easier handling
-    #     pandas_df = table_data.to_pandas()
-        
-    #     # Set table dimensions
-    #     table_widget.setRowCount(len(pandas_df))
-    #     table_widget.setColumnCount(len(pandas_df.columns))
-    #     table_widget.setHorizontalHeaderLabels(pandas_df.columns)
-        
-    #     # Fill data
-    #     for i in range(len(pandas_df)):
-    #         for j in range(len(pandas_df.columns)):
-    #             value = pandas_df.iloc[i, j]
-    #             item = QTableWidgetItem(str(value))
-    #             table_widget.setItem(i, j, item)
-        
-    #     # Resize columns to content
-    #     table_widget.resizeColumnsToContents()
-    
     def populate_table_widget(self, table_widget, table_data):
         """Populate a QTableWidget with data from a polars DataFrame"""
         if table_data is None or table_data.is_empty():
@@ -882,8 +736,22 @@ class XIPVRemainingTablesDialog(QDialog):
         
         # Convert polars to pandas for easier handling
         pandas_df = table_data.to_pandas()
-        populate_table_with_types(table_widget, pandas_df)
-
+        
+        # Set table dimensions
+        table_widget.setRowCount(len(pandas_df))
+        table_widget.setColumnCount(len(pandas_df.columns))
+        table_widget.setHorizontalHeaderLabels(pandas_df.columns)
+        
+        # Fill data
+        for i in range(len(pandas_df)):
+            for j in range(len(pandas_df.columns)):
+                value = pandas_df.iloc[i, j]
+                item = QTableWidgetItem(str(value))
+                table_widget.setItem(i, j, item)
+        
+        # Resize columns to content
+        table_widget.resizeColumnsToContents()
+    
     def import_new_data(self, table_index):
         """Import new data for a table"""
         dialog = XIPVTableDialog(self, table_number=table_index+1)
@@ -910,43 +778,26 @@ class XIPVRemainingTablesDialog(QDialog):
                 except Exception as e:
                     QMessageBox.critical(self, "Error", f"Failed to parse table data: {str(e)}")
     
-    # def handle_table_edit(self, table_index, table_widget):
-    #     """Handle edits to the table widget"""
-    #     try:
-    #         # Get headers
-    #         headers = []
-    #         for j in range(table_widget.columnCount()):
-    #             headers.append(table_widget.horizontalHeaderItem(j).text())
-            
-    #         # Get all data
-    #         data = []
-    #         for i in range(table_widget.rowCount()):
-    #             row_data = []
-    #             for j in range(table_widget.columnCount()):
-    #                 item = table_widget.item(i, j)
-    #                 value = item.text() if item else ""
-    #                 row_data.append(value)
-    #             data.append(row_data)
-            
-    #         # Create pandas DataFrame and convert to polars
-    #         pandas_df = pd.DataFrame(data, columns=headers)
-    #         pl_df = pl.from_pandas(pandas_df)
-            
-    #         # Update the table
-    #         self.tables[table_index] = pl_df
-            
-    #         # Mark as modified
-    #         self.modified_tables.add(table_index)
-    #     except Exception as e:
-    #         print(f"Error updating table data: {str(e)}")
-
     def handle_table_edit(self, table_index, table_widget):
-        """Handle edits to the table widget preserving types"""
+        """Handle edits to the table widget"""
         try:
-            # Extract data preserving types
-            pandas_df = extract_table_data(table_widget)
+            # Get headers
+            headers = []
+            for j in range(table_widget.columnCount()):
+                headers.append(table_widget.horizontalHeaderItem(j).text())
             
-            # Convert to polars
+            # Get all data
+            data = []
+            for i in range(table_widget.rowCount()):
+                row_data = []
+                for j in range(table_widget.columnCount()):
+                    item = table_widget.item(i, j)
+                    value = item.text() if item else ""
+                    row_data.append(value)
+                data.append(row_data)
+            
+            # Create pandas DataFrame and convert to polars
+            pandas_df = pd.DataFrame(data, columns=headers)
             pl_df = pl.from_pandas(pandas_df)
             
             # Update the table
@@ -956,6 +807,7 @@ class XIPVRemainingTablesDialog(QDialog):
             self.modified_tables.add(table_index)
         except Exception as e:
             print(f"Error updating table data: {str(e)}")
+
 
 # Dialog for XIPV file info input (first popup)
 class XIPVFileInfoDialog(QDialog):
@@ -1032,7 +884,7 @@ class XIPVFileInfoDialog(QDialog):
 
 
 # YIPV Window
-class YIPVWindow(FramelessWindow):
+class YIPVWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.init_ui()
@@ -1042,11 +894,11 @@ class YIPVWindow(FramelessWindow):
         self.setGeometry(200, 200, 600, 400)
         
         # Central widget
-        # central_widget = QWidget()
-        # self.setCentralWidget(central_widget)
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
         
         # Main layout
-        main_layout = QVBoxLayout(self.content_area)
+        main_layout = QVBoxLayout(central_widget)
         
         # Title
         title = QLabel("YIPV Processing")
@@ -1182,7 +1034,7 @@ class FileDragDropWidget(QWidget):
             event.acceptProposedAction()
 
 
-class XReservesWindow(FramelessWindow):
+class XReservesWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.init_ui()
@@ -1192,11 +1044,11 @@ class XReservesWindow(FramelessWindow):
         self.setGeometry(200, 200, 400, 200)
         
         # Central widget
-        # central_widget = QWidget()
-        # self.setCentralWidget(central_widget)
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
         
         # Main layout
-        main_layout = QVBoxLayout(self.content_area)
+        main_layout = QVBoxLayout(central_widget)
         
         # Title
         title = QLabel("XReserves Processing")
@@ -1328,7 +1180,7 @@ class SpreadsFileDialog(QDialog):
         self.accept()
 
 
-class XReservesAllocationWindow(FramelessWindow):
+class XReservesAllocationWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.init_ui()
@@ -1342,11 +1194,11 @@ class XReservesAllocationWindow(FramelessWindow):
         self.setGeometry(200, 200, 800, 600)
         
         # Central widget
-        # central_widget = QWidget()
-        # self.setCentralWidget(central_widget)
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
         
         # Main layout
-        main_layout = QVBoxLayout(self.content_area)
+        main_layout = QVBoxLayout(central_widget)
         
         # Title
         title = QLabel("XReserves Allocation")
@@ -1616,6 +1468,7 @@ class XReservesTableDialog(QDialog):
             self.preview_table.setColumnCount(0)
             self.table_data = None
 
+
 # Class for remaining XReserves tables dialog (similar to XIPV)
 class XReservesRemainingTablesDialog(QDialog):
     def __init__(self, parent=None, tables=None):
@@ -1683,31 +1536,6 @@ class XReservesRemainingTablesDialog(QDialog):
         tab_widget.setLayout(tab_layout)
         return tab_widget
     
-    # def populate_table_widget(self, table_widget, table_data):
-    #     """Populate a QTableWidget with data from a polars DataFrame"""
-    #     if table_data is None or table_data.is_empty():
-    #         table_widget.setRowCount(0)
-    #         table_widget.setColumnCount(0)
-    #         return
-        
-    #     # Convert polars to pandas for easier handling
-    #     pandas_df = table_data.to_pandas()
-        
-    #     # Set table dimensions
-    #     table_widget.setRowCount(len(pandas_df))
-    #     table_widget.setColumnCount(len(pandas_df.columns))
-    #     table_widget.setHorizontalHeaderLabels(pandas_df.columns)
-        
-    #     # Fill data
-    #     for i in range(len(pandas_df)):
-    #         for j in range(len(pandas_df.columns)):
-    #             value = pandas_df.iloc[i, j]
-    #             item = QTableWidgetItem(str(value))
-    #             table_widget.setItem(i, j, item)
-        
-    #     # Resize columns to content
-    #     table_widget.resizeColumnsToContents()
-    
     def populate_table_widget(self, table_widget, table_data):
         """Populate a QTableWidget with data from a polars DataFrame"""
         if table_data is None or table_data.is_empty():
@@ -1717,9 +1545,22 @@ class XReservesRemainingTablesDialog(QDialog):
         
         # Convert polars to pandas for easier handling
         pandas_df = table_data.to_pandas()
-        populate_table_with_types(table_widget, pandas_df)
-
-
+        
+        # Set table dimensions
+        table_widget.setRowCount(len(pandas_df))
+        table_widget.setColumnCount(len(pandas_df.columns))
+        table_widget.setHorizontalHeaderLabels(pandas_df.columns)
+        
+        # Fill data
+        for i in range(len(pandas_df)):
+            for j in range(len(pandas_df.columns)):
+                value = pandas_df.iloc[i, j]
+                item = QTableWidgetItem(str(value))
+                table_widget.setItem(i, j, item)
+        
+        # Resize columns to content
+        table_widget.resizeColumnsToContents()
+    
     def import_new_data(self, table_index):
         """Import new data for a table"""
         dialog = XReservesTableDialog(self, table_number=table_index+3)  # Adjusted table number
@@ -1746,43 +1587,26 @@ class XReservesRemainingTablesDialog(QDialog):
                 except Exception as e:
                     QMessageBox.critical(self, "Error", f"Failed to parse table data: {str(e)}")
     
-    # def handle_table_edit(self, table_index, table_widget):
-    #     """Handle edits to the table widget"""
-    #     try:
-    #         # Get headers
-    #         headers = []
-    #         for j in range(table_widget.columnCount()):
-    #             headers.append(table_widget.horizontalHeaderItem(j).text())
-            
-    #         # Get all data
-    #         data = []
-    #         for i in range(table_widget.rowCount()):
-    #             row_data = []
-    #             for j in range(table_widget.columnCount()):
-    #                 item = table_widget.item(i, j)
-    #                 value = item.text() if item else ""
-    #                 row_data.append(value)
-    #             data.append(row_data)
-            
-    #         # Create pandas DataFrame and convert to polars
-    #         pandas_df = pd.DataFrame(data, columns=headers)
-    #         pl_df = pl.from_pandas(pandas_df)
-            
-    #         # Update the table
-    #         self.tables[table_index] = pl_df
-            
-    #         # Mark as modified
-    #         self.modified_tables.add(table_index)
-    #     except Exception as e:
-    #         print(f"Error updating table data: {str(e)}")
-
     def handle_table_edit(self, table_index, table_widget):
-        """Handle edits to the table widget preserving types"""
+        """Handle edits to the table widget"""
         try:
-            # Extract data preserving types
-            pandas_df = extract_table_data(table_widget)
+            # Get headers
+            headers = []
+            for j in range(table_widget.columnCount()):
+                headers.append(table_widget.horizontalHeaderItem(j).text())
             
-            # Convert to polars
+            # Get all data
+            data = []
+            for i in range(table_widget.rowCount()):
+                row_data = []
+                for j in range(table_widget.columnCount()):
+                    item = table_widget.item(i, j)
+                    value = item.text() if item else ""
+                    row_data.append(value)
+                data.append(row_data)
+            
+            # Create pandas DataFrame and convert to polars
+            pandas_df = pd.DataFrame(data, columns=headers)
             pl_df = pl.from_pandas(pandas_df)
             
             # Update the table
@@ -1794,7 +1618,7 @@ class XReservesRemainingTablesDialog(QDialog):
             print(f"Error updating table data: {str(e)}")
 
 # YReserves Window
-class YReservesWindow(FramelessWindow):
+class YReservesWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.init_ui()
@@ -1804,11 +1628,11 @@ class YReservesWindow(FramelessWindow):
         self.setGeometry(200, 200, 600, 400)
         
         # Central widget
-        # central_widget = QWidget()
-        # self.setCentralWidget(central_widget)
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
         
         # Main layout
-        main_layout = QVBoxLayout(self.content_area)
+        main_layout = QVBoxLayout(central_widget)
         
         # Title
         title = QLabel("YReserves Processing")
@@ -1990,7 +1814,7 @@ class OtherToolsWidget(QWidget):
         self.currency_window = CurrencyPairWindow()
         self.currency_window.show()
 
-class CCYSegregationWindow(FramelessWindow):
+class CCYSegregationWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.input_data = {}
@@ -2000,9 +1824,9 @@ class CCYSegregationWindow(FramelessWindow):
         self.setWindowTitle("Full Reval CCY Segregation")
         self.setGeometry(200, 200, 800, 600)
         
-        # central_widget = QWidget()
-        # self.setCentralWidget(central_widget)
-        main_layout = QVBoxLayout(self.content_area)
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        main_layout = QVBoxLayout(central_widget)
         
         # Process steps
         self.stacked_steps = QStackedWidget()
@@ -2156,7 +1980,7 @@ class CCYSegregationWindow(FramelessWindow):
             QMessageBox.critical(self, "Error", f"Table parsing failed: {str(e)}")
             return None
 
-class CurrencyPairWindow(FramelessWindow):
+class CurrencyPairWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.default_excel = "CCYreplacement.xlsx"
@@ -2168,9 +1992,9 @@ class CurrencyPairWindow(FramelessWindow):
         self.setWindowTitle("Currency Pair Replacement")
         self.setGeometry(200, 200, 800, 600)
         
-        # central_widget = QWidget()
-        # self.setCentralWidget(central_widget)
-        main_layout = QVBoxLayout(self.content_area)
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        main_layout = QVBoxLayout(central_widget)
         
         # File inputs
         # file_group = QGroupBox("Input Files")
@@ -2256,37 +2080,34 @@ class CurrencyPairWindow(FramelessWindow):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to load table {table_idx+1}: {str(e)}")
 
-    # Inside CurrencyPairWindow class
     def populate_table(self, table_idx):
-        """Populate QTableWidget with data preserving types"""
+        """Populate QTableWidget with data"""
         table = self.table_widgets[table_idx]
         df = self.table_data[table_idx]
         
-        table.blockSignals(True)
+        table.blockSignals(True)  # Prevent cellChanged during population
         table.clear()
-        populate_table_with_types(table, df)
+        
+        if df.empty:
+            table.setRowCount(0)
+            table.setColumnCount(0)
+        else:
+            table.setRowCount(df.shape[0])
+            table.setColumnCount(df.shape[1])
+            table.setHorizontalHeaderLabels(df.columns)
+            
+            for row in range(df.shape[0]):
+                for col in range(df.shape[1]):
+                    item = QTableWidgetItem(str(df.iat[row, col]))
+                    table.setItem(row, col, item)
+        
+        table.resizeColumnsToContents()
         table.blockSignals(False)
 
-    # Inside CurrencyPairWindow class
     def table_updated(self, row, col, table_idx):
-        """Handle table edits preserving data types"""
+        """Handle table edits"""
         try:
-            item = self.table_widgets[table_idx].item(row, col)
-            if item is None or not item.text():
-                value = ""
-            else:
-                text = item.text()
-                try:
-                    # Attempt to convert to number if possible
-                    if text.isdigit():
-                        value = int(text)
-                    elif text.replace(".", "", 1).isdigit():
-                        value = float(text)
-                    else:
-                        value = text
-                except ValueError:
-                    value = text
-            
+            value = self.table_widgets[table_idx].item(row, col).text()
             col_name = self.table_data[table_idx].columns[col]
             self.table_data[table_idx].at[row, col_name] = value
         except Exception as e:

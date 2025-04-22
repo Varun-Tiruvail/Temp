@@ -1,112 +1,181 @@
-/* Add this content to dark_theme.qss */
+
+/* Main background and text colors */
+
+
 QWidget {
-    background-color: #2D2D2D;
-    color: #FFFFFF;
-    font-family: 'Segoe UI';
-    font-size: 12px;
-    border: none;
-}
-
-QPushButton {
-    background-color: #3C3F41;
-    border: 1px solid #555555;
-    border-radius: 4px;
-    padding: 8px 15px;
-    margin: 2px;
-}
-
-QPushButton:hover {
-    background-color: #4D5052;
-}
-
-QPushButton:pressed {
-    background-color: #2B2B2B;
-}
-
-QHeaderView::section {
-    background-color: #3C3F41;
-    padding: 4px;
-}
-
-QTableWidget {
-    background-color: #313335;
-    alternate-background-color: #2B2B2B;
-    gridline-color: #555555;
-}
-
-/* Add these to existing styles */
-QLineEdit, QPlainTextEdit, QDateEdit {
-    background-color: #404040;
+    background-color: #2d2d2d;
     color: #ffffff;
-    border: 1px solid #555555;
-    border-radius: 3px;
-    padding: 5px;
-}
-
-QCalendarWidget QWidget { 
-    alternate-background-color: #404040;
-    background: #3c3f41;
-    color: white;
-}
-
-QCalendarWidget QToolButton {
-    background: #4d5052;
-    color: white;
-}
-
-QTableView {
-    background: #3c3f41;
-    color: white;
-}
-
-/* Add other widget styles as needed */
-
-/* Custom Window Controls */
-QPushButton#minimizeButton {
-    background-color: transparent;
     border: none;
+    font-family: Segoe UI;
+    font-size: 12px;
+}
+
+/* ===== TITLE BAR STYLES ===== */
+QWidget#titleLabel {
+    background-color: transparent;
+    color: #ffffff;
+    font-weight: bold;
+    padding-left: 10px;
+    font-size: 13px;
+}
+
+QWidget#titleBar {
+    background-color: #262626;
+    border-top-left-radius: 10px;
+    border-top-right-radius: 10px;
+    border-bottom: 1px solid #404040;
+}
+
+QWidget#titleBar QLabel {
+    color: #ffffff;
+    font-weight: bold;
+    padding-left: 10px;
+    font-size: 13px;
+}
+
+/* Window control buttons */
+QPushButton#minimizeButton, 
+QPushButton#closeButton {
+    background-color: transparent;
+    color: #999999;
+    border: none;
+    min-width: 30px;
+    max-width: 30px;
+    min-height: 25px;
+    max-height: 25px;
+    border-radius: 3px;
+    margin-right: 3px;
 }
 
 QPushButton#minimizeButton:hover {
     background-color: #404040;
-}
-
-QPushButton#minimizeButton::before {
-    content: "";
-    display: block;
-    position: absolute;
-    left: 10px;
-    top: 14px;
-    width: 10px;
-    height: 2px;
-    background-color: #FFFFFF;
-}
-
-QPushButton#closeButton {
-    background-color: transparent;
-    border: none;
+    color: #ffffff;
 }
 
 QPushButton#closeButton:hover {
-    background-color: #E81123;
+    background-color: #e81123;
+    color: #ffffff;
 }
 
-QPushButton#closeButton::before,
-QPushButton#closeButton::after {
-    content: "";
-    display: block;
-    position: absolute;
-    left: 10px;
-    top: 10px;
+/* ===== MAIN WINDOW STYLES ===== */
+QMainWindow {
+    background-color: #262626;
+    border-radius: 10px;
+    border: 1px solid #0d0d0d;
+}
+
+/* Tab widget styling */
+QTabWidget::pane {
+    border: 1px solid #444;
+    top: -1px;
+    background: #2d2d2d;
+}
+
+QTabBar::tab {
+    background: #353535;
+    color: #ffffff;
+    padding: 8px;
+    border-top-left-radius: 4px;
+    border-top-right-radius: 4px;
+    border: 1px solid #444;
+    margin-right: 2px;
+}
+
+QTabBar::tab:selected {
+    background: #2d2d2d;
+    border-bottom-color: #2d2d2d;
+}
+
+QTabBar::tab:hover {
+    background: #404040;
+}
+
+/* Button styling */
+QPushButton {
+    background-color: #3a3a3a;
+    border: 1px solid #444;
+    padding: 5px;
+    border-radius: 4px;
+}
+
+QPushButton:hover {
+    background-color: #4a4a4a;
+}
+
+QPushButton:pressed {
+    background-color: #2a2a2a;
+}
+
+/* Line edit styling */
+QLineEdit {
+    background-color: #353535;
+    border: 1px solid #444;
+    padding: 5px;
+    border-radius: 4px;
+}
+
+/* Table styling */
+QPlainTextEdit{
+    background-color:rgb(61, 61, 61);
+    alternate-background-color:rgb(36, 36, 36);
+    gridline-color: #444;
+}
+QTableWidget {
+    background-color:rgb(61, 61, 61);
+    alternate-background-color:rgb(36, 36, 36);
+    gridline-color: #444;
+}
+
+QHeaderView::section {
+    background-color: #1e1e1e;
+    padding: 5px;
+    border: 1px solid #444;
+}
+
+/* Scroll bars */
+QScrollBar:vertical {
+    border: none;
+    background: #2d2d2d;
     width: 10px;
-    height: 2px;
-    background-color: #FFFFFF;
 }
 
-QPushButton#closeButton::before {
-    transform: rotate(45deg);
+QScrollBar::handle:vertical {
+    background: #4a4a4a;
+    min-height: 20px;
 }
 
-QPushButton#closeButton::after {
-    transform: rotate(-45deg);
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0px;
 }
+
+/* Calendar widget */
+QCalendarWidget QToolButton {
+    color: #ffffff;
+}
+
+QCalendarWidget QMenu {
+    background-color: #2d2d2d;
+    color: #ffffff;
+}
+
+/* Main Container */
+QWidget#mainContainer {
+    background-color: #262626;
+    border-radius: 10px;
+    border: 1px solid #404040;
+}
+
+QWidget#contentArea {
+    background-color:rgb(44, 44, 44);
+    border-radius: 0 0 10px 10px;
+}
+
+/* Update the title bar style */
+QWidget#titleBar {
+    background-color: #262626;
+    border-top-left-radius: 10px;
+    border-top-right-radius: 10px;
+    border-bottom: 1px solid #404040;
+}
+
+/* Rest of your existing CSS styles... */
