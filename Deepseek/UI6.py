@@ -104,18 +104,14 @@ class TitleBar(QWidget):
         self.parent = parent
         self.setObjectName("titleBar")
         self.setFixedHeight(45)  # Increased height for better visibility
-        
-        # Set explicit background color and styling
-        
-        
+
         layout = QHBoxLayout(self)
         layout.setContentsMargins(5, 3, 5, 3)
         layout.setSpacing(3)
         
         # Title Label
-        self.title_label = QLabel("RAPID ")
+        self.title_label = QLabel("RAPID - Rates Automation Projects Integrated Development")
         self.title_label.setObjectName("titleLabel")
-        # self.title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #ffffff;")
         self.title_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         layout.addWidget(self.title_label)
         
@@ -249,44 +245,12 @@ class MainWindow(FramelessWindow):
     
     def __init__(self):
         super().__init__()
-        # self.setWindowFlags(Qt.FramelessWindowHint)  # Remove default title bar
         self.init_ui()
         # self.setWindowTitle("RAPID - Rates Automation Projects Integrated Development")
 
     def init_ui(self):
         self.setGeometry(100, 100, 800, 600)
         content_layout = QVBoxLayout(self.content_area)
-        # Central widget
-        # central_widget = QWidget()
-        # self.setCentralWidget(central_widget)
-        
-        # Main layout
-        # main_layout = QVBoxLayout(central_widget)
-        
-        # # Window control buttons
-        # self.minimize_btn = QPushButton()
-        # self.close_btn = QPushButton()
-
-        # # Set object names for CSS targeting
-        # self.minimize_btn.setObjectName("minimizeButton")
-        # self.close_btn.setObjectName("closeButton")
-        
-        # for btn in [self.minimize_btn, self.close_btn]:
-        #     btn.setFixedSize(30, 30)
-        #     btn.setCursor(Qt.PointingHandCursor)
-            
-
-        
-        # self.minimize_btn.clicked.connect(self.showMinimized)
-        # self.close_btn.clicked.connect(self.close)
-        
-        # title_layout.addWidget(self.minimize_btn)
-        # title_layout.addWidget(self.close_btn)
-        
-        # # Add to main layout
-        # main_layout.addWidget(title_bar)
-
-        # Create category buttons first
         self.ipv_button = QPushButton("IPV")
         self.reserves_button = QPushButton("Reserves")
         self.pruvals_button = QPushButton("Pruvals")
