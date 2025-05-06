@@ -9,6 +9,8 @@ from Crypto.Random import get_random_bytes
 import base64
 import hashlib
 import pandas as pd
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
 
 class FeedbackDatabase:
     def __init__(self):
@@ -23,6 +25,19 @@ class FeedbackDatabase:
                 username TEXT NOT NULL UNIQUE,
                 encrypted_data TEXT NOT NULL,
                 approved BOOLEAN NOT NULL DEFAULT 0
+            )
+        ''')
+        # Create feedback responses table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS feedback_responses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                manager TEXT NOT NULL,
+                reportee_type TEXT NOT NULL,
+                question_id TEXT,
+                response INTEGER,
+                general_feedback TEXT,
+                approval_status BOOLEAN NOT NULL,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         ''')
         self.conn.commit()
@@ -194,7 +209,7 @@ class RegistrationDialog(QDialog):
             return
             
         try:
-            # self.parent().feedback_db.create_user(username, password)
+            self.parent().feedback_db.create_user(username, password)
             QMessageBox.information(self, "Success", "Registration submitted for approval")
             self.accept()
         except sqlite3.IntegrityError:
@@ -349,10 +364,17 @@ class FeedbackMainWindow(QMainWindow):
         self.approval_label = QLabel()
         self.update_approval_status()
         layout.addWidget(self.approval_label)
+        analysis_btn = QPushButton('View Analysis')
+        analysis_btn.clicked.connect(self.show_analysis)
+        layout.addWidget(analysis_btn)
+    
+    def show_analysis(self):
+        dialog = FeedbackAnalysisDialog(self.username, self.feedback_db)
+        dialog.exec()
 
     def update_approval_status(self):
         approved = self.feedback_db.get_user_status(self.username)
-        status = "Approved" if approved else "Pending Approval"
+        status = "Approved" if approved else "Pending Approval - Feedback will be recorded but marked unapproved"
         self.approval_label.setText(f"Account Status: {status}")
 
     # def open_survey(self):
@@ -557,47 +579,447 @@ class SurveyApp(QDialog):
         finally:
             conn.close()
 
-    # def submit_feedback(self):
-    #     # Connect to your existing feedback database
-    #     conn = sqlite3.connect('feedback.db')
-    #     cursor = conn.cursor()
+class FeedbackAnalysisDialog(QDialog):
+    def __init__(self, username, feedback_db):
+        super().__init__()
+        self.username = username
+        self.feedback_db = feedback_db
+        self.merged_data = pd.DataFrame()  # Initialize empty DataFrame
+        self.responses_df = pd.DataFrame()
+        self.general_feedback_df = pd.DataFrame()
+        self.setWindowTitle(f"Feedback Analysis - {username}")
+        self.resize(1200, 900)
         
-    #     # Create feedback table if not exists
-    #     cursor.execute('''
-    #         CREATE TABLE IF NOT EXISTS feedback_responses (
-    #             id INTEGER PRIMARY KEY AUTOINCREMENT,
-    #             manager TEXT NOT NULL,
-    #             reportee_type TEXT NOT NULL,
-    #             question_id TEXT,
-    #             response INTEGER,
-    #             general_feedback TEXT,
-    #             approval_status BOOLEAN NOT NULL,
-    #             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        # Load questions
+        try:
+            self.questions_df = pd.read_excel('survey_questions.xlsx')
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Error loading questions: {str(e)}")
+            self.close()
+        
+        self.init_ui()
+        self.load_data()
+
+    def init_ui(self):
+        main_layout = QVBoxLayout()
+        
+        # Header
+        header = QLabel(f"Analysis for: {self.username}")
+        header.setStyleSheet("font-size: 18px; font-weight: bold; color: #2c3e50;")
+        main_layout.addWidget(header)
+        
+        # Refresh button
+        refresh_btn = QPushButton("Refresh Analysis")
+        refresh_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #3498db;
+                color: white;
+                padding: 8px 16px;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            QPushButton:hover { background-color: #2980b9; }
+        """)
+        refresh_btn.clicked.connect(self.load_data)
+        main_layout.addWidget(refresh_btn)
+
+        # Tab widget
+        self.tabs = QTabWidget()
+        
+        # Add tabs
+        self.create_overall_tab()
+        self.create_section_tab()
+        self.create_question_tab()
+        
+        main_layout.addWidget(self.tabs)
+        self.setLayout(main_layout)
+
+    # def load_data(self):
+    #     try:
+    #         conn = sqlite3.connect('feedback.db')
+            
+    #         # Load feedback responses with NaN handling
+    #         self.responses_df = pd.read_sql_query("""
+    #             SELECT manager, reportee_type, question_id, 
+    #                 CAST(response AS INTEGER) as response, 
+    #                 approval_status
+    #             FROM feedback_responses
+    #             WHERE approval_status = 1
+    #             AND response != 'NaN'  -- Filter out invalid responses
+    #         """, conn)
+            
+    #         # Load general feedback
+    #         self.general_feedback_df = pd.read_sql_query("""
+    #             SELECT manager, general_feedback
+    #             FROM feedback_responses
+    #             WHERE general_feedback IS NOT NULL AND approval_status = 1
+    #         """, conn)
+            
+    #         # Convert responses to percentages
+    #         self.responses_df['response_pct'] = (
+    #             (pd.to_numeric(self.responses_df['response']) - 1) / 3 * 100
     #         )
-    #     ''')
+            
+    #         # Merge with questions
+    #         self.merged_data = pd.merge(
+    #             self.responses_df,
+    #             self.questions_df,
+    #             left_on='question_id',
+    #             right_on='QuestionID',
+    #             how='left'
+    #         )
+            
+    #         self.update_analyses()
+            
+    #     except Exception as e:
+    #         QMessageBox.critical(self, "Error", f"Error loading data: {str(e)}")
+
+    def load_data(self):
+        try:
+            conn = sqlite3.connect('feedback.db')
+            
+            # Initialize empty DataFrames first
+            self.responses_df = pd.DataFrame()
+            self.general_feedback_df = pd.DataFrame()
+            self.merged_data = pd.DataFrame()
+
+            # Load data
+            self.responses_df = pd.read_sql_query("""
+                SELECT manager, reportee_type, question_id, response, approval_status
+                FROM feedback_responses
+                WHERE approval_status = 1
+            """, conn)
+            
+            # Convert responses to percentages
+            if not self.responses_df.empty:
+                self.responses_df['response'] = pd.to_numeric(self.responses_df['response'], errors='coerce')
+                self.responses_df = self.responses_df.dropna(subset=['response'])
+                self.responses_df['response_pct'] = ((self.responses_df['response'] - 1) / 3 * 100)
+                
+                # Merge with questions
+                self.merged_data = pd.merge(
+                    self.responses_df,
+                    self.questions_df,
+                    left_on='question_id',
+                    right_on='QuestionID',
+                    how='left'
+                )
+                
+            # Load general feedback
+            self.general_feedback_df = pd.read_sql_query("""
+                SELECT manager, general_feedback
+                FROM feedback_responses
+                WHERE general_feedback IS NOT NULL AND approval_status = 1
+            """, conn)
+            
+            self.update_analyses()
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Error loading data: {str(e)}")
+        finally:
+            if 'conn' in locals():
+                conn.close()
+
+    def convert_to_percentage(self, series):
+        """Convert 1-4 scale to 0-100% scale"""
+        return ((series.mean() - 1) / 3 * 100) if not series.empty else 0
+
+    def create_overall_tab(self):
+        tab = QWidget()
+        layout = QVBoxLayout()
         
-    #     # Insert LM feedback
-    #     for q_id, response in self.lm_responses.items():
-    #         if response is not None:
-    #             cursor.execute('''
-    #                 INSERT INTO feedback_responses 
-    #                 (employee, manager, question_id, response)
-    #                 VALUES (?, ?, ?, ?)
-    #             ''', (self.current_user, self.manager_name, q_id, response))
+        self.overall_canvas = FigureCanvas(Figure(figsize=(10, 6)))
+        layout.addWidget(self.overall_canvas)
         
-    #     # Insert general feedback
-    #     general_feedback = self.general_feedback_input.toPlainText()
-    #     if general_feedback:
-    #         cursor.execute('''
-    #             INSERT INTO feedback_responses 
-    #             (employee, manager, general_feedback)
-    #             VALUES (?, ?, ?)
-    #         ''', (self.current_user, self.manager_name, general_feedback))
+        tab.setLayout(layout)
+        self.tabs.addTab(tab, "Overall Analysis")
+
+    def update_overall_analysis(self):
+        fig = self.overall_canvas.figure
+        fig.clear()
+        ax = fig.add_subplot(111)
         
-    #     conn.commit()
-    #     conn.close()
-    #     QMessageBox.information(self, "Success", "Feedback submitted!")
-    #     self.close()
+        # Calculate percentages
+        direct_avg = self.convert_to_percentage(
+            self.merged_data[self.merged_data['reportee_type'] == 'direct']['response']
+        )
+        indirect_avg = self.convert_to_percentage(
+            self.merged_data[self.merged_data['reportee_type'] == 'indirect']['response']
+        )
+        
+        # Plotting
+        categories = ['Direct Feedback', 'Indirect Feedback']
+        values = [direct_avg, indirect_avg]
+        
+        bars = ax.bar(categories, values, color=['#3498db', '#2ecc71'])
+        ax.set_ylim(0, 100)
+        ax.set_ylabel('Score (%)')
+        ax.set_title('Overall Feedback Scores')
+        
+        # Add value labels
+        for bar in bars:
+            height = bar.get_height()
+            ax.text(bar.get_x() + bar.get_width()/2., height,
+                    f'{height:.1f}%', ha='center', va='bottom')
+        
+        self.overall_canvas.draw()
+
+    def create_section_tab(self):
+        tab = QWidget()
+        layout = QVBoxLayout()
+        
+        # Section selection
+        self.section_combo = QComboBox()
+        self.section_combo.addItems(self.questions_df['Category'].unique().tolist())
+        self.section_combo.currentTextChanged.connect(self.update_section_analysis)
+        
+        # Info label
+        info_label = QLabel("Select a category to view detailed breakdown")
+        info_label.setStyleSheet("color: #7f8c8d; font-style: italic;")
+        
+        # Canvas setup
+        self.section_canvas = FigureCanvas(Figure(figsize=(10, 6)))
+        
+        layout.addWidget(self.section_combo)
+        layout.addWidget(info_label)
+        layout.addWidget(self.section_canvas)
+        tab.setLayout(layout)
+        self.tabs.addTab(tab, "Category Analysis")
+
+    def update_section_analysis(self, category):
+        fig = self.section_canvas.figure
+        fig.clear()
+        ax = fig.add_subplot(111)
+        
+        # Filter data
+        section_data = self.merged_data[self.merged_data['Category'] == category]
+        
+        if section_data.empty:
+            ax.text(0.5, 0.5, 'No data available\nfor this category', 
+                   ha='center', va='center', fontsize=12)
+            self.section_canvas.draw()
+            return
+        
+        # Calculate percentages
+        direct_pct = self.convert_to_percentage(
+            section_data[section_data['reportee_type'] == 'direct']['response']
+        )
+        indirect_pct = self.convert_to_percentage(
+            section_data[section_data['reportee_type'] == 'indirect']['response']
+        )
+        
+        # Create bar plot
+        categories = ['Direct Feedback', 'Indirect Feedback']
+        values = [direct_pct, indirect_pct]
+        colors = ['#3498db', '#2ecc71']
+        
+        bars = ax.bar(categories, values, color=colors)
+        ax.set_ylim(0, 100)
+        ax.set_ylabel('Average Score (%)')
+        ax.set_title(f'{category} Analysis', fontsize=14, fontweight='bold')
+        
+        # Add value labels
+        for bar in bars:
+            height = bar.get_height()
+            ax.text(bar.get_x() + bar.get_width()/2., height,
+                    f'{height:.1f}%', ha='center', va='bottom',
+                    fontsize=12, color='#2c3e50')
+        
+        # Style adjustments
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.grid(axis='y', linestyle='--', alpha=0.7)
+        
+        self.section_canvas.draw()
+
+    def create_question_tab(self):
+        tab = QWidget()
+        layout = QVBoxLayout()
+        
+        # Category selection
+        self.question_category_combo = QComboBox()
+        self.question_category_combo.addItems(self.questions_df['Category'].unique().tolist())
+        self.question_category_combo.currentTextChanged.connect(self.update_question_list)
+        
+        # Question selection
+        self.question_combo = QComboBox()
+        self.question_combo.currentTextChanged.connect(self.update_question_analysis)
+        
+        # Canvas setup
+        self.question_canvas = FigureCanvas(Figure(figsize=(10, 6)))
+        
+        # Layout organization
+        selection_layout = QHBoxLayout()
+        selection_layout.addWidget(QLabel("Category:"))
+        selection_layout.addWidget(self.question_category_combo)
+        selection_layout.addWidget(QLabel("Question:"))
+        selection_layout.addWidget(self.question_combo)
+        selection_layout.addStretch()
+        
+        layout.addLayout(selection_layout)
+        layout.addWidget(self.question_canvas)
+        tab.setLayout(layout)
+        self.tabs.addTab(tab, "Question Analysis")
+        
+        self.update_question_list(self.question_category_combo.currentText())
+
+    def update_question_list(self, category):
+        self.question_combo.clear()
+        questions = self.questions_df[self.questions_df['Category'] == category]
+        for _, row in questions.iterrows():
+            self.question_combo.addItem(row['Question'], row['QuestionID'])
+
+    # def update_question_analysis(self, question_text):
+    #     fig = self.question_canvas.figure
+    #     fig.clear()
+        
+    #     if not question_text:
+    #         return
+            
+    #     question_id = self.question_combo.currentData()
+    #     question_data = self.merged_data[self.merged_data['QuestionID'] == question_id]
+        
+    #     if question_data.empty:
+    #         ax = fig.add_subplot(111)
+    #         ax.text(0.5, 0.5, 'No data available\nfor this question', 
+    #                ha='center', va='center', fontsize=12)
+    #         self.question_canvas.draw()
+    #         return
+        
+    #     # Prepare data
+    #     response_counts = question_data['response'].value_counts().sort_index()
+    #     options = [f"Option {i}" for i in range(1, 5)]
+    #     counts = [response_counts.get(str(i), 0) for i in range(1, 5)]
+    #     total = sum(counts)
+    #     percentages = [(count/total)*100 if total > 0 else 0 for count in counts]
+        
+    #     # Create donut chart
+    #     ax = fig.add_subplot(111)
+    #     wedges, texts, autotexts = ax.pie(
+    #         percentages,
+    #         labels=options,
+    #         autopct=lambda p: f'{p:.1f}%' if p > 0 else '',
+    #         startangle=90,
+    #         colors=['#e74c3c', '#3498db', '#2ecc71', '#f1c40f'],
+    #         wedgeprops={'width': 0.4, 'edgecolor': 'white'},
+    #         textprops={'fontsize': 10}
+    #     )
+        
+    #     # Add center circle
+    #     # centre_circle = plt.Circle((0,0), 0.2, fc='white')
+    #     # ax.add_artist(centre_circle)
+        
+    #     # Add question text
+    #     ax.set_title(question_text, fontsize=12, pad=20, color='#2c3e50')
+        
+    #     # Style legend
+    #     legend = ax.legend(
+    #         wedges,
+    #         [f"Option {i+1}" for i in range(4)],
+    #         title="Response Options",
+    #         loc="center",
+    #         bbox_to_anchor=(0.5, -0.1),
+    #         ncol=4
+    #     )
+    #     legend.get_title().set_fontsize(10)
+        
+    #     # Style percentages
+    #     for autotext in autotexts:
+    #         autotext.set_color('white')
+    #         autotext.set_fontweight('bold')
+        
+    #     self.question_canvas.draw()
+
+    def update_question_analysis(self, question_text):
+        fig = self.question_canvas.figure
+        fig.clear()
+        
+        # if not question_text:
+        #     return
+        if not question_text or self.merged_data.empty:
+            ax = fig.add_subplot(111)
+            ax.text(0.5, 0.5, 'No data available', 
+                   ha='center', va='center', fontsize=12)
+            self.question_canvas.draw()
+            return
+            
+        question_id = self.question_combo.currentData()
+        question_data = self.merged_data[self.merged_data['QuestionID'] == question_id]
+        
+        if question_data.empty:
+            ax = fig.add_subplot(111)
+            ax.text(0.5, 0.5, 'No data available\nfor this question', 
+                ha='center', va='center', fontsize=12)
+            self.question_canvas.draw()
+            return
+        
+        try:
+            # Convert responses to numeric and handle NaNs
+            question_data = question_data.dropna(subset=['response'])
+            response_counts = question_data['response'].astype(int).value_counts().sort_index()
+            
+            # Ensure we have all possible options (1-4)
+            response_counts = response_counts.reindex([1, 2, 3, 4], fill_value=0)
+            total = response_counts.sum()
+            
+            if total == 0:
+                raise ValueError("No valid responses")
+                
+            percentages = (response_counts / total) * 100
+            
+            # Create donut chart
+            ax = fig.add_subplot(111)
+            wedges, texts, autotexts = ax.pie(
+                percentages,
+                labels=[f"Option {i}" for i in range(1, 5)],
+                autopct=lambda p: f'{p:.1f}%' if p > 0 else '',
+                startangle=90,
+                colors=['#e74c3c', '#3498db', '#2ecc71', '#f1c40f'],
+                wedgeprops={'width': 0.4, 'edgecolor': 'white'},
+                textprops={'fontsize': 10}
+            )
+            
+            # Add center circle
+            # centre_circle = plt.Circle((0,0), 0.2, fc='white')
+            # ax.add_artist(centre_circle)
+            ax.set_title(question_text, fontsize=12, pad=20)
+                #     # Add question text
+            # ax.set_title(question_text, fontsize=12, pad=20, color='#2c3e50')
+            
+            # Style legend
+            legend = ax.legend(
+                wedges,
+                [f"Option {i+1}" for i in range(4)],
+                title="Response Options",
+                loc="center",
+                bbox_to_anchor=(0.5, -0.1),
+                ncol=4
+            )
+            legend.get_title().set_fontsize(10)
+            
+            # Style percentages
+            for autotext in autotexts:
+                autotext.set_color('white')
+                autotext.set_fontweight('bold')
+            
+            # self.question_canvas.draw()
+            
+        except Exception as e:
+            ax = fig.add_subplot(111)
+            ax.text(0.5, 0.5, 'Error displaying data\nPlease check input', 
+                ha='center', va='center', fontsize=12, color='red')
+            
+        self.question_canvas.draw()
+
+    def update_analyses(self):
+        """Update all analysis views"""
+        self.update_overall_analysis()
+        current_section = self.section_combo.currentText()
+        if current_section:
+            self.update_section_analysis(current_section)
+        current_question = self.question_combo.currentText()
+        if current_question:
+            self.update_question_analysis(current_question)
 
 if __name__ == '__main__':
     app = QApplication([])
