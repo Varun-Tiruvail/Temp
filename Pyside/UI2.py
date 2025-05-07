@@ -549,22 +549,22 @@ class SurveyApp(QDialog):
                     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
-            # Process LM feedback responses
-            for qid, response in self.lm_responses.items():
-                if response is not None:
-                    for i, manager in enumerate(manager_chain):
-                        reportee_type = 'direct' if i == 0 else 'indirect'
+            # Modified insertion logic for clarity
+            for i, manager in enumerate(manager_chain):
+                reportee_type = 'direct' if i == 0 else 'indirect'
+                
+                # Insert question responses
+                for qid, response in self.lm_responses.items():
+                    if response is not None:
                         cursor.execute('''
                             INSERT INTO feedback_responses 
                             (manager, reportee_type, question_id, response, approval_status)
                             VALUES (?, ?, ?, ?, ?)
                         ''', (manager, reportee_type, qid, response, approval_status))
 
-            # Process general feedback
-            general_feedback = self.general_feedback_input.toPlainText()
-            if general_feedback:
-                for i, manager in enumerate(manager_chain):
-                    reportee_type = 'direct' if i == 0 else 'indirect'
+                # Insert general feedback
+                general_feedback = self.general_feedback_input.toPlainText()
+                if general_feedback:
                     cursor.execute('''
                         INSERT INTO feedback_responses 
                         (manager, reportee_type, general_feedback, approval_status)
@@ -584,11 +584,14 @@ class FeedbackAnalysisDialog(QDialog):
         super().__init__()
         self.username = username
         self.feedback_db = feedback_db
+        self.include_unapproved = False
         self.merged_data = pd.DataFrame()  # Initialize empty DataFrame
         self.responses_df = pd.DataFrame()
         self.general_feedback_df = pd.DataFrame()
         self.setWindowTitle(f"Feedback Analysis - {username}")
         self.resize(1200, 900)
+        self.unapproved_check = QCheckBox("Include unapproved feedback?")
+        self.unapproved_check.stateChanged.connect(self.toggle_unapproved)
         
         # Load questions
         try:
@@ -607,6 +610,11 @@ class FeedbackAnalysisDialog(QDialog):
         header = QLabel(f"Analysis for: {self.username}")
         header.setStyleSheet("font-size: 18px; font-weight: bold; color: #2c3e50;")
         main_layout.addWidget(header)
+
+        # Add include unapproved checkbox
+        # self.unapproved_check = QCheckBox("Include unapproved feedback?")
+        # self.unapproved_check.stateChanged.connect(self.toggle_unapproved)
+        main_layout.addWidget(self.unapproved_check)
         
         # Refresh button
         refresh_btn = QPushButton("Refresh Analysis")
@@ -634,61 +642,39 @@ class FeedbackAnalysisDialog(QDialog):
         main_layout.addWidget(self.tabs)
         self.setLayout(main_layout)
 
-    # def load_data(self):
-    #     try:
-    #         conn = sqlite3.connect('feedback.db')
-            
-    #         # Load feedback responses with NaN handling
-    #         self.responses_df = pd.read_sql_query("""
-    #             SELECT manager, reportee_type, question_id, 
-    #                 CAST(response AS INTEGER) as response, 
-    #                 approval_status
-    #             FROM feedback_responses
-    #             WHERE approval_status = 1
-    #             AND response != 'NaN'  -- Filter out invalid responses
-    #         """, conn)
-            
-    #         # Load general feedback
-    #         self.general_feedback_df = pd.read_sql_query("""
-    #             SELECT manager, general_feedback
-    #             FROM feedback_responses
-    #             WHERE general_feedback IS NOT NULL AND approval_status = 1
-    #         """, conn)
-            
-    #         # Convert responses to percentages
-    #         self.responses_df['response_pct'] = (
-    #             (pd.to_numeric(self.responses_df['response']) - 1) / 3 * 100
-    #         )
-            
-    #         # Merge with questions
-    #         self.merged_data = pd.merge(
-    #             self.responses_df,
-    #             self.questions_df,
-    #             left_on='question_id',
-    #             right_on='QuestionID',
-    #             how='left'
-    #         )
-            
-    #         self.update_analyses()
-            
-    #     except Exception as e:
-    #         QMessageBox.critical(self, "Error", f"Error loading data: {str(e)}")
+    def toggle_unapproved(self, state):
+        """Handle checkbox state change"""
+        self.include_unapproved = state == Qt.Checked
+        self.load_data()
 
     def load_data(self):
         try:
             conn = sqlite3.connect('feedback.db')
             
-            # Initialize empty DataFrames first
-            self.responses_df = pd.DataFrame()
-            self.general_feedback_df = pd.DataFrame()
-            self.merged_data = pd.DataFrame()
-
-            # Load data
-            self.responses_df = pd.read_sql_query("""
-                SELECT manager, reportee_type, question_id, response, approval_status
+            # Modified queries to filter by current user and approval status
+            responses_query = """
+                SELECT reportee_type, question_id, response, approval_status
                 FROM feedback_responses
-                WHERE approval_status = 1
-            """, conn)
+                WHERE manager = ? 
+                AND (approval_status = 1 OR ?)
+                AND response IS NOT NULL
+            """
+            self.responses_df = pd.read_sql_query(
+                responses_query, conn, 
+                params=(self.username, int(0 if self.include_unapproved==True else 1))
+            )
+
+            general_query = """
+                SELECT general_feedback
+                FROM feedback_responses
+                WHERE manager = ? 
+                AND (approval_status = 1 OR ?)
+                AND general_feedback IS NOT NULL
+            """
+            self.general_feedback_df = pd.read_sql_query(
+                general_query, conn,
+                params=(self.username, int(self.include_unapproved))
+            )
             
             # Convert responses to percentages
             if not self.responses_df.empty:
@@ -705,12 +691,12 @@ class FeedbackAnalysisDialog(QDialog):
                     how='left'
                 )
                 
-            # Load general feedback
-            self.general_feedback_df = pd.read_sql_query("""
-                SELECT manager, general_feedback
-                FROM feedback_responses
-                WHERE general_feedback IS NOT NULL AND approval_status = 1
-            """, conn)
+            # # Load general feedback
+            # self.general_feedback_df = pd.read_sql_query("""
+            #     SELECT manager, general_feedback
+            #     FROM feedback_responses
+            #     WHERE general_feedback IS NOT NULL AND approval_status = 1
+            # """, conn)
             
             self.update_analyses()
             
@@ -734,34 +720,110 @@ class FeedbackAnalysisDialog(QDialog):
         tab.setLayout(layout)
         self.tabs.addTab(tab, "Overall Analysis")
 
+    # def update_overall_analysis(self):
+    #     fig = self.overall_canvas.figure
+    #     fig.clear()
+    #     ax = fig.add_subplot(111)
+        
+    #     # Calculate percentages
+    #     direct_avg = self.convert_to_percentage(
+    #         self.merged_data[self.merged_data['reportee_type'] == 'direct']['response']
+    #     )
+    #     indirect_avg = self.convert_to_percentage(
+    #         self.merged_data[self.merged_data['reportee_type'] == 'indirect']['response']
+    #     )
+        
+    #     # Plotting
+    #     categories = ['Direct Feedback', 'Indirect Feedback']
+    #     values = [direct_avg, indirect_avg]
+        
+    #     bars = ax.bar(categories, values, color=['#3498db', '#2ecc71'])
+    #     ax.set_ylim(0, 100)
+    #     ax.set_ylabel('Score (%)')
+    #     ax.set_title('Overall Feedback Scores')
+        
+    #     # Add value labels
+    #     for bar in bars:
+    #         height = bar.get_height()
+    #         ax.text(bar.get_x() + bar.get_width()/2., height,
+    #                 f'{height:.1f}%', ha='center', va='bottom')
+        
+    #     self.overall_canvas.draw()
+
     def update_overall_analysis(self):
         fig = self.overall_canvas.figure
         fig.clear()
-        ax = fig.add_subplot(111)
         
-        # Calculate percentages
-        direct_avg = self.convert_to_percentage(
-            self.merged_data[self.merged_data['reportee_type'] == 'direct']['response']
-        )
-        indirect_avg = self.convert_to_percentage(
-            self.merged_data[self.merged_data['reportee_type'] == 'indirect']['response']
-        )
+        # Get data
+        direct_data = self.merged_data[self.merged_data['reportee_type'] == 'direct']
+        indirect_data = self.merged_data[self.merged_data['reportee_type'] == 'indirect']
         
-        # Plotting
-        categories = ['Direct Feedback', 'Indirect Feedback']
-        values = [direct_avg, indirect_avg]
+        has_direct = not direct_data.empty
+        has_indirect = not indirect_data.empty
         
-        bars = ax.bar(categories, values, color=['#3498db', '#2ecc71'])
-        ax.set_ylim(0, 100)
-        ax.set_ylabel('Score (%)')
-        ax.set_title('Overall Feedback Scores')
-        
-        # Add value labels
-        for bar in bars:
-            height = bar.get_height()
-            ax.text(bar.get_x() + bar.get_width()/2., height,
-                    f'{height:.1f}%', ha='center', va='bottom')
-        
+        if not has_direct and not has_indirect:
+            ax = fig.add_subplot(111)
+            ax.text(0.5, 0.5, 'No feedback data available', 
+                ha='center', va='center', fontsize=12)
+            self.overall_canvas.draw()
+            return
+
+        # Calculate response counts for pie chart
+        direct_count = len(direct_data)
+        indirect_count = len(indirect_data)
+        total_responses = direct_count + indirect_count
+
+        if has_direct and has_indirect:
+            # Pie chart for response distribution
+            ax = fig.add_subplot(111)
+            labels = ['Direct Feedback', 'Indirect Feedback']
+            sizes = [direct_count, indirect_count]
+            colors = ['#3498db', '#2ecc71']
+            explode = (0.1, 0)  # emphasize direct feedback
+
+            wedges, texts, autotexts = ax.pie(
+                sizes, 
+                explode=explode, 
+                labels=labels, 
+                colors=colors,
+                autopct=lambda p: f'{p:.1f}%\n({int(p*total_responses/100)})',
+                startangle=140,
+                wedgeprops={'edgecolor': 'white', 'linewidth': 2},
+                textprops={'fontsize': 12}
+            )
+
+            ax.set_title('Feedback Response Distribution', fontsize=14, pad=20)
+            ax.axis('equal')  # Equal aspect ratio ensures pie is drawn as circle
+            
+            # Add percentage and count in center
+            center_text = f'Total Responses\n{total_responses}'
+            ax.text(0, 0, center_text, 
+                ha='center', va='center', 
+                fontsize=12, color='#2c3e50')
+
+        else:
+            # Bar chart for single feedback type
+            ax = fig.add_subplot(111)
+            feedback_type = 'Direct' if has_direct else 'Indirect'
+            avg_score = self.convert_to_percentage(
+                direct_data['response'] if has_direct else indirect_data['response']
+            )
+
+            bars = ax.bar([feedback_type], [avg_score], 
+                        color='#3498db', width=0.6)
+            ax.set_ylim(0, 100)
+            ax.set_ylabel('Average Score (%)')
+            ax.set_title(f'{feedback_type} Feedback Score', fontsize=14)
+            
+            # Add value label
+            for bar in bars:
+                height = bar.get_height()
+                ax.text(bar.get_x() + bar.get_width()/2., height,
+                        f'{height:.1f}%', ha='center', va='bottom', fontsize=12)
+
+        # self.overall_canvas.tight_layout()
+        fig.tight_layout()
+
         self.overall_canvas.draw()
 
     def create_section_tab(self):
@@ -930,16 +992,95 @@ class FeedbackAnalysisDialog(QDialog):
         
     #     self.question_canvas.draw()
 
+    # def update_question_analysis(self, question_text):
+    #     fig = self.question_canvas.figure
+    #     fig.clear()
+        
+    #     # if not question_text:
+    #     #     return
+    #     if not question_text or self.merged_data.empty:
+    #         ax = fig.add_subplot(111)
+    #         ax.text(0.5, 0.5, 'No data available', 
+    #                ha='center', va='center', fontsize=12)
+    #         self.question_canvas.draw()
+    #         return
+            
+    #     question_id = self.question_combo.currentData()
+    #     question_data = self.merged_data[self.merged_data['QuestionID'] == question_id]
+        
+    #     if question_data.empty:
+    #         ax = fig.add_subplot(111)
+    #         ax.text(0.5, 0.5, 'No data available\nfor this question', 
+    #             ha='center', va='center', fontsize=12)
+    #         self.question_canvas.draw()
+    #         return
+        
+    #     try:
+    #         # Convert responses to numeric and handle NaNs
+    #         question_data = question_data.dropna(subset=['response'])
+    #         response_counts = question_data['response'].astype(int).value_counts().sort_index()
+            
+    #         # Ensure we have all possible options (1-4)
+    #         response_counts = response_counts.reindex([1, 2, 3, 4], fill_value=0)
+    #         total = response_counts.sum()
+            
+    #         if total == 0:
+    #             raise ValueError("No valid responses")
+                
+    #         percentages = (response_counts / total) * 100
+            
+    #         # Create donut chart
+    #         ax = fig.add_subplot(111)
+    #         wedges, texts, autotexts = ax.pie(
+    #             percentages,
+    #             labels=[f"Option {i}" for i in range(1, 5)],
+    #             autopct=lambda p: f'{p:.1f}%' if p > 0 else '',
+    #             startangle=90,
+    #             colors=['#e74c3c', '#3498db', '#2ecc71', '#f1c40f'],
+    #             wedgeprops={'width': 0.4, 'edgecolor': 'white'},
+    #             textprops={'fontsize': 10}
+    #         )
+            
+    #         # Add center circle
+    #         # centre_circle = plt.Circle((0,0), 0.2, fc='white')
+    #         # ax.add_artist(centre_circle)
+    #         ax.set_title(question_text, fontsize=12, pad=20)
+    #             #     # Add question text
+    #         # ax.set_title(question_text, fontsize=12, pad=20, color='#2c3e50')
+            
+    #         # Style legend
+    #         legend = ax.legend(
+    #             wedges,
+    #             [f"Option {i+1}" for i in range(4)],
+    #             title="Response Options",
+    #             loc="center",
+    #             bbox_to_anchor=(0.5, -0.1),
+    #             ncol=4
+    #         )
+    #         legend.get_title().set_fontsize(10)
+            
+    #         # Style percentages
+    #         for autotext in autotexts:
+    #             autotext.set_color('white')
+    #             autotext.set_fontweight('bold')
+            
+    #         self.question_canvas.draw()
+            
+    #     except Exception as e:
+    #         ax = fig.add_subplot(111)
+    #         ax.text(0.5, 0.5, 'Error displaying data\nPlease check input', 
+    #             ha='center', va='center', fontsize=12, color='red')
+            
+    #         self.question_canvas.draw()
+
     def update_question_analysis(self, question_text):
         fig = self.question_canvas.figure
         fig.clear()
         
-        # if not question_text:
-        #     return
         if not question_text or self.merged_data.empty:
             ax = fig.add_subplot(111)
             ax.text(0.5, 0.5, 'No data available', 
-                   ha='center', va='center', fontsize=12)
+                ha='center', va='center', fontsize=12)
             self.question_canvas.draw()
             return
             
@@ -954,62 +1095,143 @@ class FeedbackAnalysisDialog(QDialog):
             return
         
         try:
-            # Convert responses to numeric and handle NaNs
-            question_data = question_data.dropna(subset=['response'])
-            response_counts = question_data['response'].astype(int).value_counts().sort_index()
+            # Split data into direct and indirect
+            direct_data = question_data[question_data['reportee_type'] == 'direct']
+            indirect_data = question_data[question_data['reportee_type'] == 'indirect']
             
-            # Ensure we have all possible options (1-4)
-            response_counts = response_counts.reindex([1, 2, 3, 4], fill_value=0)
-            total = response_counts.sum()
+            # Determine how many subplots we need
+            has_direct = not direct_data.empty
+            has_indirect = not indirect_data.empty
             
-            if total == 0:
-                raise ValueError("No valid responses")
+            if not has_direct and not has_indirect:
+                ax = fig.add_subplot(111)
+                ax.text(0.5, 0.5, 'No data available', 
+                    ha='center', va='center', fontsize=12)
+                self.question_canvas.draw()
+                return
                 
-            percentages = (response_counts / total) * 100
-            
-            # Create donut chart
-            ax = fig.add_subplot(111)
-            wedges, texts, autotexts = ax.pie(
-                percentages,
-                labels=[f"Option {i}" for i in range(1, 5)],
-                autopct=lambda p: f'{p:.1f}%' if p > 0 else '',
-                startangle=90,
-                colors=['#e74c3c', '#3498db', '#2ecc71', '#f1c40f'],
-                wedgeprops={'width': 0.4, 'edgecolor': 'white'},
-                textprops={'fontsize': 10}
-            )
-            
-            # Add center circle
-            # centre_circle = plt.Circle((0,0), 0.2, fc='white')
-            # ax.add_artist(centre_circle)
-            ax.set_title(question_text, fontsize=12, pad=20)
-                #     # Add question text
-            # ax.set_title(question_text, fontsize=12, pad=20, color='#2c3e50')
-            
-            # Style legend
-            legend = ax.legend(
-                wedges,
-                [f"Option {i+1}" for i in range(4)],
-                title="Response Options",
-                loc="center",
-                bbox_to_anchor=(0.5, -0.1),
-                ncol=4
-            )
-            legend.get_title().set_fontsize(10)
-            
-            # Style percentages
-            for autotext in autotexts:
-                autotext.set_color('white')
-                autotext.set_fontweight('bold')
-            
-            # self.question_canvas.draw()
+            # Create subplots based on data availability
+            if has_direct and has_indirect:
+                ax1 = fig.add_subplot(121)
+                ax2 = fig.add_subplot(122)
+                axes = [(ax1, direct_data, 'Direct Responses'), 
+                    (ax2, indirect_data, 'Indirect Responses')]
+            else:
+                ax = fig.add_subplot(111)
+                data = direct_data if has_direct else indirect_data
+                type_label = 'Direct' if has_direct else 'Indirect'
+                axes = [(ax, data, f'{type_label} Responses')]
+
+            # # Common plotting function
+            # def plot_pie(ax, data, title):
+            #     if data.empty:
+            #         ax.axis('off')
+            #         return
+                    
+            #     response_counts = data['response'].astype(int).value_counts().sort_index()
+            #     response_counts = response_counts.reindex([1, 2, 3, 4], fill_value=0)
+            #     total = response_counts.sum()
+                
+            #     if total == 0:
+            #         ax.axis('off')
+            #         return
+                    
+            #     percentages = (response_counts / total) * 100
+                
+            #     wedges, texts, autotexts = ax.pie(
+            #         percentages,
+            #         labels=[f"Option {i}" for i in range(1, 5)],
+            #         autopct=lambda p: f'{p:.1f}%' if p > 0 else '',
+            #         startangle=90,
+            #         colors=['#e74c3c', '#3498db', '#2ecc71', '#f1c40f'],
+            #         wedgeprops={'width': 0.4, 'edgecolor': 'white'},
+            #         textprops={'fontsize': 10}
+            #     )
+                
+            #     ax.set_title(title, fontsize=12, pad=20)
+                
+            #     # Add legend
+            #     legend = ax.legend(
+            #         wedges,
+            #         [f"Option {i+1}" for i in range(4)],
+            #         title="Response Options",
+            #         loc="center",
+            #         bbox_to_anchor=(0.5, -0.1),
+            #         ncol=4
+            #     )
+            #     legend.get_title().set_fontsize(10)
+                
+            #     for autotext in autotexts:
+            #         autotext.set_color('white')
+            #         autotext.set_fontweight('bold')
+            #     # Modified plot_pie function with actual options
+
+
+            def plot_pie(ax, data, title):
+                if data.empty:
+                    ax.axis('off')
+                    return
+                    
+                # Get actual question options from Excel data
+                question_id = self.question_combo.currentData()
+                question_row = self.questions_df[self.questions_df['QuestionID'] == question_id].iloc[0]
+                options = [
+                    question_row['Option1'],
+                    question_row['Option2'],
+                    question_row['Option3'],
+                    question_row['Option4']
+                ]
+
+                response_counts = data['response'].astype(int).value_counts().sort_index()
+                response_counts = response_counts.reindex([1, 2, 3, 4], fill_value=0)
+                total = response_counts.sum()
+                
+                if total == 0:
+                    ax.axis('off')
+                    return
+                    
+                percentages = (response_counts / total) * 100
+                
+                wedges, texts, autotexts = ax.pie(
+                    percentages,
+                    labels=options,  # Use actual options here
+                    autopct=lambda p: f'{p:.1f}%' if p > 0 else '',
+                    startangle=90,
+                    colors=['#e74c3c', '#3498db', '#2ecc71', '#f1c40f'],
+                    wedgeprops={'width': 0.4, 'edgecolor': 'white'},
+                    textprops={'fontsize': 10}
+                )
+                
+                ax.set_title(title, fontsize=12, pad=20)
+                
+                # Update legend with actual options
+                legend = ax.legend(
+                    wedges,
+                    options,  # Use actual options here
+                    title="Response Options",
+                    loc="center",
+                    bbox_to_anchor=(0.5, -0.1),
+                    ncol=2  # Changed to 2 columns for better fit
+                )
+                legend.get_title().set_fontsize(10)
+                
+                for autotext in autotexts:
+                    autotext.set_color('white')
+                    autotext.set_fontweight('bold')
+                    
+            # Plot each chart
+            for ax, data, title in axes:
+                plot_pie(ax, data, title)
+                
+            # Adjust layout
+            fig.tight_layout()
+            self.question_canvas.draw()
             
         except Exception as e:
             ax = fig.add_subplot(111)
             ax.text(0.5, 0.5, 'Error displaying data\nPlease check input', 
                 ha='center', va='center', fontsize=12, color='red')
-            
-        self.question_canvas.draw()
+            self.question_canvas.draw()
 
     def update_analyses(self):
         """Update all analysis views"""
