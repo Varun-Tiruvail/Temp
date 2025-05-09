@@ -15,6 +15,7 @@ from matplotlib.figure import Figure
 class FeedbackDatabase:
     def __init__(self):
         self.conn = sqlite3.connect('feedback.db')
+        self.conn.execute('PRAGMA journal_mode=WAL')
         self.create_tables()
         
     def create_tables(self):
@@ -540,6 +541,7 @@ class SurveyApp(QDialog):
             return
 
         conn = sqlite3.connect('feedback.db')
+        conn.execute('PRAGMA journal_mode=WAL')
         cursor = conn.cursor()
         
 
@@ -726,6 +728,7 @@ class FeedbackAnalysisDialog(QDialog):
             count = self.attendance_db.get_submission_count()
             self.submission_count_label.setText(f"Total Users Submitted: {count}")
             conn = sqlite3.connect('feedback.db')
+            conn.execute('PRAGMA journal_mode=WAL')
             
             # Clear previous data
             self.responses_df = pd.DataFrame()

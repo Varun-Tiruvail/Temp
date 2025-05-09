@@ -19,6 +19,7 @@ class FeedbackDatabase:
         
     def create_tables(self):
         cursor = self.conn.cursor()
+        
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
