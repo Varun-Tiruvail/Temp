@@ -84,68 +84,6 @@ class MainWindow(QMainWindow):
         # Initialize
         self.connection = None
         self.metadata_tree.setHeaderLabel("Cube Structure")
-        
-    # def connect_to_olap(self):
-    #     conn_str = self.connection_string.text()
-    #     try:
-    #         self.connection = pyadomd.connect(conn_str)
-    #         self.load_cubes()
-    #         QMessageBox.information(self, "Success", "Connected successfully!")
-    #     except Exception as e:
-    #         QMessageBox.critical(self, "Error", f"Connection failed: {str(e)}")
-    
-    # def load_cubes(self):
-    #     self.cube_combo.clear()
-    #     query = "SELECT CUBE_NAME FROM $system.MDSCHEMA_CUBES WHERE CUBE_TYPE = 'CUBE'"
-    #     try:
-    #         with self.connection.cursor().execute(query) as cursor:
-    #             cubes = [row.CUBE_NAME for row in cursor.fetchall()]
-    #             self.cube_combo.addItems(cubes)
-    #     except Exception as e:
-    #         QMessageBox.critical(self, "Error", f"Failed to load cubes: {str(e)}")
-    
-    # def load_cube_metadata(self, cube_name):
-    #     self.metadata_tree.clear()
-    #     if not cube_name:
-    #         return
-        
-    #     try:
-    #         # Load dimensions and hierarchies
-    #         hier_query = f"""
-    #         SELECT DIMENSION_UNIQUE_NAME, HIERARCHY_UNIQUE_NAME, HIERARCHY_CAPTION
-    #         FROM $system.MDSCHEMA_HIERARCHIES
-    #         WHERE CUBE_NAME = '{cube_name}' AND HIERARCHY_ORIGIN = 2
-    #         """
-    #         with self.connection.cursor().execute(hier_query) as cursor:
-    #             dimensions = {}
-    #             for row in cursor.fetchall():
-    #                 dim_name = row.DIMENSION_UNIQUE_NAME
-    #                 hier_name = row.HIERARCHY_UNIQUE_NAME
-    #                 hier_caption = row.HIERARCHY_CAPTION
-                    
-    #                 if dim_name not in dimensions:
-    #                     dimensions[dim_name] = QTreeWidgetItem(self.metadata_tree, [dim_name])
-                    
-    #                 hier_item = QTreeWidgetItem(dimensions[dim_name], [hier_caption])
-    #                 hier_item.setData(0, Qt.UserRole, hier_name)
-    #                 hier_item.setData(0, Qt.UserRole+1, "hierarchy")
-            
-    #         # Load measures
-    #         measures_query = f"""
-    #         SELECT MEASURE_UNIQUE_NAME, MEASURE_NAME
-    #         FROM $system.MDSCHEMA_MEASURES
-    #         WHERE CUBE_NAME = '{cube_name}'
-    #         """
-    #         measures_item = QTreeWidgetItem(self.metadata_tree, ["Measures"])
-    #         with self.connection.cursor().execute(measures_query) as cursor:
-    #             for row in cursor.fetchall():
-    #                 measure_item = QTreeWidgetItem(measures_item, [row.MEASURE_NAME])
-    #                 measure_item.setData(0, Qt.UserRole, row.MEASURE_UNIQUE_NAME)
-    #                 measure_item.setData(0, Qt.UserRole+1, "measure")
-            
-    #         self.metadata_tree.expandAll()
-    #     except Exception as e:
-    #         QMessageBox.critical(self, "Error", f"Failed to load metadata: {str(e)}")
     
             
     def connect_to_olap(self):
@@ -158,17 +96,82 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Connection failed: {str(e)}")
     
+    # def load_cubes(self):
+    #     self.cube_combo.clear()
+    #     try:
+    #         cmd = AdomdCommand("SELECT CUBE_NAME FROM $system.MDSCHEMA_CUBES WHERE CUBE_TYPE = 'CUBE'", 
+    #                          self.connection)
+    #         reader = cmd.ExecuteReader()
+    #         cubes = []
+    #         while reader.Read():
+    #             cubes.append(reader.GetString(0))
+    #         self.cube_combo.addItems(cubes)
+    #         reader.Close()
+    #     except Exception as e:
+    #         QMessageBox.critical(self, "Error", f"Failed to load cubes: {str(e)}")
+
+    # def load_cube_metadata(self, cube_name):
+    #     self.metadata_tree.clear()
+    #     if not cube_name:
+    #         return
+        
+    #     try:
+    #         # Load dimensions and hierarchies
+    #         cmd = AdomdCommand(f"""
+    #             SELECT DIMENSION_UNIQUE_NAME, HIERARCHY_UNIQUE_NAME, HIERARCHY_CAPTION
+    #             FROM $system.MDSCHEMA_HIERARCHIES
+    #             WHERE CUBE_NAME = '{cube_name}' AND HIERARCHY_ORIGIN = 2
+    #             """, self.connection)
+    #         reader = cmd.ExecuteReader()
+            
+    #         dimensions = {}
+    #         while reader.Read():
+    #             dim_name = reader.GetString(0)
+    #             hier_name = reader.GetString(1)
+    #             hier_caption = reader.GetString(2)
+                
+    #             if dim_name not in dimensions:
+    #                 dimensions[dim_name] = QTreeWidgetItem(self.metadata_tree, [dim_name])
+                
+    #             hier_item = QTreeWidgetItem(dimensions[dim_name], [hier_caption])
+    #             hier_item.setData(0, Qt.UserRole, hier_name)
+    #             hier_item.setData(0, Qt.UserRole+1, "hierarchy")
+    #         reader.Close()
+
+    #         # Load measures
+    #         cmd = AdomdCommand(f"""
+    #             SELECT MEASURE_UNIQUE_NAME, MEASURE_NAME
+    #             FROM $system.MDSCHEMA_MEASURES
+    #             WHERE CUBE_NAME = '{cube_name}'
+    #             """, self.connection)
+    #         reader = cmd.ExecuteReader()
+            
+    #         measures_item = QTreeWidgetItem(self.metadata_tree, ["Measures"])
+    #         while reader.Read():
+    #             measure_name = reader.GetString(1)
+    #             measure_unique_name = reader.GetString(0)
+    #             measure_item = QTreeWidgetItem(measures_item, [measure_name])
+    #             measure_item.setData(0, Qt.UserRole, measure_unique_name)
+    #             measure_item.setData(0, Qt.UserRole+1, "measure")
+    #         reader.Close()
+            
+    #         self.metadata_tree.expandAll()
+    #     except Exception as e:
+    #         QMessageBox.critical(self, "Error", f"Failed to load metadata: {str(e)}")
+
     def load_cubes(self):
         self.cube_combo.clear()
         try:
             cmd = AdomdCommand("SELECT CUBE_NAME FROM $system.MDSCHEMA_CUBES WHERE CUBE_TYPE = 'CUBE'", 
-                             self.connection)
+                            self.connection)
             reader = cmd.ExecuteReader()
             cubes = []
-            while reader.Read():
-                cubes.append(reader.GetString(0))
+            try:
+                while reader.Read():
+                    cubes.append(reader.GetString(0))
+            finally:
+                reader.Close()
             self.cube_combo.addItems(cubes)
-            reader.Close()
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to load cubes: {str(e)}")
 
@@ -185,20 +188,21 @@ class MainWindow(QMainWindow):
                 WHERE CUBE_NAME = '{cube_name}' AND HIERARCHY_ORIGIN = 2
                 """, self.connection)
             reader = cmd.ExecuteReader()
-            
             dimensions = {}
-            while reader.Read():
-                dim_name = reader.GetString(0)
-                hier_name = reader.GetString(1)
-                hier_caption = reader.GetString(2)
-                
-                if dim_name not in dimensions:
-                    dimensions[dim_name] = QTreeWidgetItem(self.metadata_tree, [dim_name])
-                
-                hier_item = QTreeWidgetItem(dimensions[dim_name], [hier_caption])
-                hier_item.setData(0, Qt.UserRole, hier_name)
-                hier_item.setData(0, Qt.UserRole+1, "hierarchy")
-            reader.Close()
+            try:
+                while reader.Read():
+                    dim_name = reader.GetString(0)
+                    hier_name = reader.GetString(1)
+                    hier_caption = reader.GetString(2)
+                    
+                    if dim_name not in dimensions:
+                        dimensions[dim_name] = QTreeWidgetItem(self.metadata_tree, [dim_name])
+                    
+                    hier_item = QTreeWidgetItem(dimensions[dim_name], [hier_caption])
+                    hier_item.setData(0, Qt.UserRole, hier_name)
+                    hier_item.setData(0, Qt.UserRole+1, "hierarchy")
+            finally:
+                reader.Close()
 
             # Load measures
             cmd = AdomdCommand(f"""
@@ -207,15 +211,16 @@ class MainWindow(QMainWindow):
                 WHERE CUBE_NAME = '{cube_name}'
                 """, self.connection)
             reader = cmd.ExecuteReader()
-            
             measures_item = QTreeWidgetItem(self.metadata_tree, ["Measures"])
-            while reader.Read():
-                measure_name = reader.GetString(1)
-                measure_unique_name = reader.GetString(0)
-                measure_item = QTreeWidgetItem(measures_item, [measure_name])
-                measure_item.setData(0, Qt.UserRole, measure_unique_name)
-                measure_item.setData(0, Qt.UserRole+1, "measure")
-            reader.Close()
+            try:
+                while reader.Read():
+                    measure_name = reader.GetString(1)
+                    measure_unique_name = reader.GetString(0)
+                    measure_item = QTreeWidgetItem(measures_item, [measure_name])
+                    measure_item.setData(0, Qt.UserRole, measure_unique_name)
+                    measure_item.setData(0, Qt.UserRole+1, "measure")
+            finally:
+                reader.Close()
             
             self.metadata_tree.expandAll()
         except Exception as e:
