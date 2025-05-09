@@ -175,57 +175,123 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to load cubes: {str(e)}")
 
+    # def load_cube_metadata(self, cube_name):
+    #     self.metadata_tree.clear()
+    #     if not cube_name:
+    #         return
+        
+    #     try:
+    #         # Load dimensions and hierarchies
+    #         cmd = AdomdCommand(f"""
+    #             SELECT DIMENSION_UNIQUE_NAME, HIERARCHY_UNIQUE_NAME, HIERARCHY_CAPTION
+    #             FROM $system.MDSCHEMA_HIERARCHIES
+    #             WHERE CUBE_NAME = '{cube_name}' AND HIERARCHY_ORIGIN = 2
+    #             """, self.connection)
+    #         reader = cmd.ExecuteReader()
+    #         dimensions = {}
+    #         try:
+    #             while reader.Read():
+    #                 dim_name = reader.GetString(0)
+    #                 hier_name = reader.GetString(1)
+    #                 hier_caption = reader.GetString(2)
+                    
+    #                 if dim_name not in dimensions:
+    #                     dimensions[dim_name] = QTreeWidgetItem(self.metadata_tree, [dim_name])
+                    
+    #                 hier_item = QTreeWidgetItem(dimensions[dim_name], [hier_caption])
+    #                 hier_item.setData(0, Qt.UserRole, hier_name)
+    #                 hier_item.setData(0, Qt.UserRole+1, "hierarchy")
+    #         finally:
+    #             reader.Close()
+
+    #         # Load measures
+    #         cmd = AdomdCommand(f"""
+    #             SELECT MEASURE_UNIQUE_NAME, MEASURE_NAME
+    #             FROM $system.MDSCHEMA_MEASURES
+    #             WHERE CUBE_NAME = '{cube_name}'
+    #             """, self.connection)
+    #         reader = cmd.ExecuteReader()
+    #         measures_item = QTreeWidgetItem(self.metadata_tree, ["Measures"])
+    #         try:
+    #             while reader.Read():
+    #                 measure_name = reader.GetString(1)
+    #                 measure_unique_name = reader.GetString(0)
+    #                 measure_item = QTreeWidgetItem(measures_item, [measure_name])
+    #                 measure_item.setData(0, Qt.UserRole, measure_unique_name)
+    #                 measure_item.setData(0, Qt.UserRole+1, "measure")
+    #         finally:
+    #             reader.Close()
+            
+    #         self.metadata_tree.expandAll()
+    #     except Exception as e:
+    #         QMessageBox.critical(self, "Error", f"Failed to load metadata: {str(e)}")
+
     def load_cube_metadata(self, cube_name):
         self.metadata_tree.clear()
         if not cube_name:
             return
-        
+
         try:
+            # Escape single quotes in cube name
+            safe_cube_name = cube_name.replace("'", "''")
+
             # Load dimensions and hierarchies
-            cmd = AdomdCommand(f"""
-                SELECT DIMENSION_UNIQUE_NAME, HIERARCHY_UNIQUE_NAME, HIERARCHY_CAPTION
-                FROM $system.MDSCHEMA_HIERARCHIES
-                WHERE CUBE_NAME = '{cube_name}' AND HIERARCHY_ORIGIN = 2
-                """, self.connection)
+            hier_query = f"""
+            SELECT [DIMENSION_UNIQUE_NAME], [HIERARCHY_UNIQUE_NAME], [HIERARCHY_CAPTION]
+            FROM $system.MDSCHEMA_HIERARCHIES
+            WHERE CUBE_NAME = '{safe_cube_name}' AND HIERARCHY_ORIGIN = 2
+            """
+            
+            cmd = AdomdCommand(hier_query, self.connection)
             reader = cmd.ExecuteReader()
             dimensions = {}
+
             try:
                 while reader.Read():
                     dim_name = reader.GetString(0)
-                    hier_name = reader.GetString(1)
+                    hier_unique_name = reader.GetString(1)
                     hier_caption = reader.GetString(2)
-                    
+
                     if dim_name not in dimensions:
                         dimensions[dim_name] = QTreeWidgetItem(self.metadata_tree, [dim_name])
                     
                     hier_item = QTreeWidgetItem(dimensions[dim_name], [hier_caption])
-                    hier_item.setData(0, Qt.UserRole, hier_name)
-                    hier_item.setData(0, Qt.UserRole+1, "hierarchy")
+                    hier_item.setData(0, Qt.UserRole, hier_unique_name)
+                    hier_item.setData(0, Qt.UserRole + 1, "hierarchy")
             finally:
                 reader.Close()
 
             # Load measures
-            cmd = AdomdCommand(f"""
-                SELECT MEASURE_UNIQUE_NAME, MEASURE_NAME
-                FROM $system.MDSCHEMA_MEASURES
-                WHERE CUBE_NAME = '{cube_name}'
-                """, self.connection)
+            measures_query = f"""
+            SELECT [MEASURE_UNIQUE_NAME], [MEASURE_NAME]
+            FROM $system.MDSCHEMA_MEASURES
+            WHERE CUBE_NAME = '{safe_cube_name}'
+            """
+            
+            cmd = AdomdCommand(measures_query, self.connection)
             reader = cmd.ExecuteReader()
             measures_item = QTreeWidgetItem(self.metadata_tree, ["Measures"])
+            
             try:
                 while reader.Read():
-                    measure_name = reader.GetString(1)
                     measure_unique_name = reader.GetString(0)
+                    measure_name = reader.GetString(1)
+                    
                     measure_item = QTreeWidgetItem(measures_item, [measure_name])
                     measure_item.setData(0, Qt.UserRole, measure_unique_name)
-                    measure_item.setData(0, Qt.UserRole+1, "measure")
+                    measure_item.setData(0, Qt.UserRole + 1, "measure")
             finally:
                 reader.Close()
-            
-            self.metadata_tree.expandAll()
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to load metadata: {str(e)}")
 
+            self.metadata_tree.expandAll()
+
+        except Exception as e:
+            QMessageBox.critical(
+                self, 
+                "Metadata Load Error",
+                f"Failed to load cube metadata:\n{str(e)}"
+            )
+            
     def handle_item_double_click(self, item):
         unique_name = item.data(0, Qt.UserRole)
         item_type = item.data(0, Qt.UserRole+1)
