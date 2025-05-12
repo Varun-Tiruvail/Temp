@@ -8,6 +8,7 @@ from Crypto.Util.Padding import pad, unpad
 from Crypto.Random import get_random_bytes
 import base64
 import hashlib
+from matplotlib import patheffects, pyplot as plt
 import pandas as pd
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -43,8 +44,17 @@ class FeedbackDatabase:
             )
         ''')
         self.conn.commit()
-        
+    
+    def username_exists(self, username):
+        cursor = self.conn.cursor()
+        cursor.execute('SELECT username FROM users WHERE username = ?', (username,))
+        return cursor.fetchone() is not None
+
     def create_user(self, username, password):
+        #check if username already exists
+        if self.username_exists(username):
+            raise ValueError("Username already exists")
+        
         encryption_key = hashlib.sha256(password.encode()).digest()
         iv = get_random_bytes(AES.block_size)
         cipher = AES.new(encryption_key, AES.MODE_CBC, iv)
@@ -202,6 +212,7 @@ class HierarchyValidator:
         finally:
             conn.close()
 
+
 class RegistrationDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -231,6 +242,10 @@ class RegistrationDialog(QDialog):
         username = self.username_input.text()
         password = self.password_input.text()
         confirm = self.confirm_input.text()
+
+        if self.parent().feedback_db.username_exists(username):
+            QMessageBox.warning(self, "Error", "Username already registered")
+            return
         
         if not all([username, password, confirm]):
             QMessageBox.warning(self, "Error", "All fields are required")
@@ -311,6 +326,8 @@ class FeedbackLoginWindow(QMainWindow):
         
         login_btn.clicked.connect(self.login)
 
+
+
     def show_registration(self):
         dialog = RegistrationDialog(self)
         dialog.exec()
@@ -365,7 +382,8 @@ class FeedbackLoginWindow(QMainWindow):
     def open_feedback_interface(self, username):
         self.feedback_window = FeedbackMainWindow(username)
         self.feedback_window.show()
-        self.close()
+        # self.close()
+        self.hide()
 
     def show_error(self, message):
         QMessageBox.critical(self, 'Error', message)
@@ -385,10 +403,7 @@ class FeedbackMainWindow(QMainWindow):
         self.setCentralWidget(main_widget)
         layout = QVBoxLayout(main_widget)
 
-        # Add Survey Button
-        feedback_btn = QPushButton('Give Feedback')
-        feedback_btn.clicked.connect(self.open_survey)
-        layout.addWidget(feedback_btn)
+
 
         
         # Previous Feedback
@@ -398,9 +413,60 @@ class FeedbackMainWindow(QMainWindow):
         self.approval_label = QLabel()
         self.update_approval_status()
         layout.addWidget(self.approval_label)
-        analysis_btn = QPushButton('View Analysis')
-        analysis_btn.clicked.connect(self.show_analysis)
-        layout.addWidget(analysis_btn)
+        # Add Survey Button
+        hlayout=QHBoxLayout()
+        feedback_btn = QPushButton('Give Feedback')
+        feedback_btn.clicked.connect(self.open_survey)
+        hlayout.addWidget(feedback_btn)
+
+        self.analysis_btn = QPushButton('View Analysis')
+
+        # Get reportee count
+        direct, indirect = HierarchyValidator.get_all_reportees(self.username)
+        self.total_reportees = len(direct) + len(indirect)
+        
+        # Only show button if total reportees > 5
+        if self.total_reportees > 5:
+            hlayout.addWidget(self.analysis_btn)
+            self.analysis_btn.clicked.connect(self.check_feedback_before_analysis)
+        else:
+            hlayout.addWidget(QLabel("Analysis available with 6+ reportees"))
+            
+        # analysis_btn.clicked.connect(self.show_analysis)
+        # layout.addWidget(analysis_btn)
+        layout.addLayout(hlayout)
+        # Add sign-out button to toolbar
+        toolbar = self.addToolBar("Main Toolbar")
+        signout_action = QAction(QIcon(), "Sign Out", self)
+        signout_action.triggered.connect(self.sign_out)
+        toolbar.addAction(signout_action)
+        
+    def check_feedback_before_analysis(self):
+        conn = sqlite3.connect('feedback.db')
+        cursor = conn.cursor()
+        cursor.execute('SELECT COUNT(*) FROM feedback_responses WHERE manager = ?', (self.username,))
+        response_count = cursor.fetchone()[0]
+        conn.close()
+        
+        if response_count == 0:
+            QMessageBox.information(
+                self,
+                "No Feedback Data",
+                "No responses submitted yet.\nPlease try again later.",
+                QMessageBox.StandardButton.Ok
+            )
+        else:
+            self.show_analysis()
+
+    def sign_out(self):
+        # Clear user session data
+        self.username = None
+        QMessageBox.information(self, "Signed Out", "You have been successfully signed out")
+        
+        # Return to login window
+        self.login_window = FeedbackLoginWindow()
+        self.login_window.show()
+        self.close()
     
     def show_analysis(self):
         dialog = FeedbackAnalysisDialog(self.username, self.feedback_db)
@@ -868,6 +934,77 @@ class FeedbackAnalysisDialog(QDialog):
         self.tabs.addTab(tab, "Overall Analysis")
 
 
+    # def update_overall_analysis(self):
+    #     fig = self.overall_canvas.figure
+    #     fig.clear()
+        
+    #     # Get data
+    #     direct_data = self.merged_data[self.merged_data['reportee_type'] == 'direct']
+    #     indirect_data = self.merged_data[self.merged_data['reportee_type'] == 'indirect']
+        
+    #     has_direct = not direct_data.empty
+    #     has_indirect = not indirect_data.empty
+        
+    #     if not has_direct and not has_indirect:
+    #         ax = fig.add_subplot(111)
+    #         ax.text(0.5, 0.5, 'No feedback data available', 
+    #             ha='center', va='center', fontsize=12)
+    #         self.overall_canvas.draw()
+    #         return
+
+    #     # Calculate response counts for pie chart
+    #     direct_count = len(direct_data)
+    #     indirect_count = len(indirect_data)
+    #     total_responses = direct_count + indirect_count
+
+    #     if has_direct and has_indirect:
+    #         # Pie chart for response distribution
+    #         ax = fig.add_subplot(111)
+    #         labels = ['Direct Feedback', 'Indirect Feedback']
+    #         sizes = [direct_count, indirect_count]
+    #         colors = ['#3498db', '#2ecc71']
+    #         explode = (0.1, 0)  # emphasize direct feedback
+
+    #         wedges, texts, autotexts = ax.pie(
+    #         sizes, 
+    #         explode=explode, 
+    #         labels=labels, 
+    #         colors=colors,
+    #         autopct=lambda p: f'{p:.1f}%' if p >= 25 else '',
+    #         startangle=140,
+    #         wedgeprops={'edgecolor': 'white', 'linewidth': 2},
+    #         textprops={'fontsize': 10}
+    #         )
+
+    #         ax.set_title('Feedback Response Distribution', fontsize=14, pad=20)
+    #         ax.axis('equal')  # Equal aspect ratio ensures pie is drawn as circle
+            
+
+    #     else:
+    #         # Bar chart for single feedback type
+    #         ax = fig.add_subplot(111)
+    #         feedback_type = 'Direct' if has_direct else 'Indirect'
+    #         avg_score = self.convert_to_percentage(
+    #             direct_data['response'] if has_direct else indirect_data['response']
+    #         )
+
+    #         bars = ax.bar([feedback_type], [avg_score], 
+    #                     color='#3498db', width=0.6)
+    #         ax.set_ylim(0, 100)
+    #         ax.set_ylabel('Average Score (%)')
+    #         ax.set_title(f'{feedback_type} Feedback Score', fontsize=14)
+            
+    #         # Add value label
+    #         for bar in bars:
+    #             height = bar.get_height()
+    #             ax.text(bar.get_x() + bar.get_width()/2., height,
+    #                     f'{height:.1f}%', ha='center', va='bottom', fontsize=12)
+
+    #     # self.overall_canvas.tight_layout()
+    #     fig.tight_layout()
+
+    #     self.overall_canvas.draw()
+
     def update_overall_analysis(self):
         fig = self.overall_canvas.figure
         fig.clear()
@@ -876,6 +1013,11 @@ class FeedbackAnalysisDialog(QDialog):
         direct_data = self.merged_data[self.merged_data['reportee_type'] == 'direct']
         indirect_data = self.merged_data[self.merged_data['reportee_type'] == 'indirect']
         
+        # Calculate scores
+        direct_avg = direct_data['response_pct'].mean() if not direct_data.empty else 0
+        indirect_avg = indirect_data['response_pct'].mean() if not indirect_data.empty else 0
+        overall_avg = self.merged_data['response_pct'].mean() if not self.merged_data.empty else 0
+
         has_direct = not direct_data.empty
         has_indirect = not indirect_data.empty
         
@@ -886,57 +1028,43 @@ class FeedbackAnalysisDialog(QDialog):
             self.overall_canvas.draw()
             return
 
-        # Calculate response counts for pie chart
-        direct_count = len(direct_data)
-        indirect_count = len(indirect_data)
-        total_responses = direct_count + indirect_count
+        # Create labels with score percentages
+        labels = []
+        sizes = []
+        score_labels = []
+        
+        if has_direct:
+            labels.append('Direct Feedback')
+            sizes.append(len(direct_data))
+            score_labels.append(f'Score: {direct_avg:.1f}%')
+            
+        if has_indirect:
+            labels.append('Indirect Feedback')
+            sizes.append(len(indirect_data))
+            score_labels.append(f'Score: {indirect_avg:.1f}%')
 
-        if has_direct and has_indirect:
-            # Pie chart for response distribution
-            ax = fig.add_subplot(111)
-            labels = ['Direct Feedback', 'Indirect Feedback']
-            sizes = [direct_count, indirect_count]
-            colors = ['#3498db', '#2ecc71']
-            explode = (0.1, 0)  # emphasize direct feedback
+        # Create combined labels
+        combined_labels = [f"{label}\n{score}" for label, score in zip(labels, score_labels)]
 
-            wedges, texts, autotexts = ax.pie(
-            sizes, 
-            explode=explode, 
-            labels=labels, 
-            colors=colors,
-            autopct=lambda p: f'{p:.1f}%' if p >= 25 else '',
+        # Create pie chart
+        ax = fig.add_subplot(111)
+        wedges, texts, autotexts = ax.pie(
+            sizes,
+            labels=combined_labels,
+            autopct=lambda p: f'{p:.1f}%',
             startangle=140,
+            colors=['#3498db', '#2ecc71'],
             wedgeprops={'edgecolor': 'white', 'linewidth': 2},
             textprops={'fontsize': 10}
-            )
+        )
 
-            ax.set_title('Feedback Response Distribution', fontsize=14, pad=20)
-            ax.axis('equal')  # Equal aspect ratio ensures pie is drawn as circle
-            
-
-        else:
-            # Bar chart for single feedback type
-            ax = fig.add_subplot(111)
-            feedback_type = 'Direct' if has_direct else 'Indirect'
-            avg_score = self.convert_to_percentage(
-                direct_data['response'] if has_direct else indirect_data['response']
-            )
-
-            bars = ax.bar([feedback_type], [avg_score], 
-                        color='#3498db', width=0.6)
-            ax.set_ylim(0, 100)
-            ax.set_ylabel('Average Score (%)')
-            ax.set_title(f'{feedback_type} Feedback Score', fontsize=14)
-            
-            # Add value label
-            for bar in bars:
-                height = bar.get_height()
-                ax.text(bar.get_x() + bar.get_width()/2., height,
-                        f'{height:.1f}%', ha='center', va='bottom', fontsize=12)
-
-        # self.overall_canvas.tight_layout()
-        fig.tight_layout()
-
+        # Adjust label positions
+        plt.setp(texts, path_effects=[patheffects.withStroke(linewidth=3, foreground="white")])
+        
+        # Add overall score title
+        ax.set_title(f'Overall Score: {overall_avg:.1f}%', 
+                    fontsize=14, pad=20, fontweight='bold')
+        
         self.overall_canvas.draw()
 
     def create_section_tab(self):
@@ -1220,3 +1348,35 @@ if __name__ == '__main__':
     window = FeedbackLoginWindow()
     window.show()
     app.exec()
+
+
+# # In HierarchyValidator class
+# @staticmethod
+# def get_all_reportees(manager_username):
+#     conn = sqlite3.connect('hierarchy.db')
+#     cursor = conn.cursor()
+    
+#     try:
+#         cursor.execute('SELECT id FROM employees WHERE name = ?', (manager_username,))
+#         manager_id = cursor.fetchone()[0]
+        
+#         cursor.execute('''
+#             WITH RECURSIVE subordinates AS (
+#                 SELECT id, manager_id, 1 as level
+#                 FROM employees
+#                 WHERE manager_id = ?
+#                 UNION ALL
+#                 SELECT e.id, e.manager_id, s.level + 1
+#                 FROM employees e
+#                 INNER JOIN subordinates s ON e.manager_id = s.id
+#             )
+#             SELECT COUNT(*) FROM subordinates
+#         ''', (manager_id,))
+        
+#         total_reportees = cursor.fetchone()[0]
+#         return total_reportees
+        
+#     except Exception as e:
+#         return 0
+#     finally:
+#         conn.close()
