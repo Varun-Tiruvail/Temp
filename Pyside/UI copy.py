@@ -12,126 +12,13 @@ from matplotlib import patheffects, pyplot as plt
 import pandas as pd
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
-from cryptography.hazmat.primitives.asymmetric import rsa, padding
-from cryptography.hazmat.primitives import serialization, hashes
-from pathlib import Path
-import os
-import shutil
 
-class CryptographyManager:
-    def __init__(self):
-        self.keys_dir = Path.home() / ".feedback_keys"
-        self.keys_dir.mkdir(exist_ok=True)
-    
-    def get_onedrive_path(self):
-        # Try to find OneDrive directory
-        paths = [
-            Path.home() / "OneDrive",
-            Path.home() / "OneDrive - Corporate",
-            Path.home() / "OneDriveCommercial",
-            Path.home() / "Documents/OneDrive"
-        ]
-        
-        for path in paths:
-            if path.exists():
-                return path / ".keys"
-            elif path.exists():
-                return path
-        return None
-
-    def generate_user_keys(self, username):
-        private_key, public_key = self._generate_keys()
-        
-        # Save public key locally
-        pub_key_path = self.keys_dir / f"{username}_public.pem"
-        self._save_public_key(public_key, pub_key_path)
-        
-        # Return private key bytes for secure handling
-        return private_key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.PKCS8,
-            encryption_algorithm=serialization.NoEncryption()
-        )
-
-    def _generate_keys(self):
-        private_key = rsa.generate_private_key(
-            public_exponent=65537,
-            key_size=2048,
-        )
-        return private_key, private_key.public_key()
-
-    def _save_public_key(self, public_key, path):
-        with open(path, "wb") as f:
-            f.write(public_key.public_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PublicFormat.SubjectPublicKeyInfo
-            ))
-
-    def public_key_exists(self, username):
-        pub_key_path = self.keys_dir / f"{username}_public.pem"
-        return pub_key_path.exists()
-
-    def load_private_key(self, username):
-        onedrive_path = self.get_onedrive_path()
-        if not onedrive_path:
-            return None
-            
-        key_path = onedrive_path / f"{username}.pem"
-        if not key_path.exists():
-            return None
-            
-        with open(key_path, "rb") as f:
-            return serialization.load_pem_private_key(
-                f.read(),
-                password=None
-            )
-
-    def encrypt_data(self, data, username):
-        pub_key_path = self.keys_dir / f"{username}_public.pem"
-        if not pub_key_path.exists():
-            raise FileNotFoundError(f"No public key for {username}")
-            
-        with open(pub_key_path, "rb") as f:
-            public_key = serialization.load_pem_public_key(f.read())
-            
-        return public_key.encrypt(
-            data.encode(),
-            padding.OAEP(
-                mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                algorithm=hashes.SHA256(),
-                label=None
-            )
-        )
-
-    def decrypt_data(self, ciphertext, username):
-        private_key = self.load_private_key(username)
-        if not private_key:
-            raise ValueError("No private key available")
-            
-        return private_key.decrypt(
-            ciphertext,
-            padding.OAEP(
-                mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                algorithm=hashes.SHA256(),
-                label=None
-            )
-        ).decode()
 
 class FeedbackDatabase:
     def __init__(self):
         self.conn = sqlite3.connect('feedback.db')
-        self.crypto = CryptographyManager()
         self.create_tables()
-
-    def encrypt_feedback_data(self, data, manager_chain):
-        encrypted_data = {}
-        for manager in manager_chain:
-            try:
-                encrypted_data[manager] = self.crypto.encrypt_data(data, manager)
-            except Exception as e:
-                print(f"Encryption failed for {manager}: {str(e)}")
-        return encrypted_data
-
+        
     def create_tables(self):
         cursor = self.conn.cursor()
         
@@ -150,7 +37,7 @@ class FeedbackDatabase:
                 manager TEXT NOT NULL,
                 reportee_type TEXT NOT NULL,
                 question_id TEXT,
-                response TEXT,
+                response INTEGER,
                 general_feedback TEXT,
                 approval_status BOOLEAN NOT NULL,
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -168,23 +55,6 @@ class FeedbackDatabase:
         if self.username_exists(username):
             raise ValueError("Username already exists")
         
-        # Generate and store keys first
-        try:
-            # Generate user keys
-            private_key, public_key = self.crypto._generate_keys()
-            
-            # Store public key
-            pub_key_path = self.crypto.keys_dir / f"{username}_public.pem"
-            self.crypto._save_public_key(public_key, pub_key_path)
-            
-            # Store private key if needed
-            direct, indirect = HierarchyValidator.get_all_reportees(username)
-            if (len(direct) + len(indirect)) > 5:
-                self._distribute_private_key(username, private_key)
-                
-        except Exception as e:
-            raise ValueError(f"Key generation failed: {str(e)}")
-        
         encryption_key = hashlib.sha256(password.encode()).digest()
         iv = get_random_bytes(AES.block_size)
         cipher = AES.new(encryption_key, AES.MODE_CBC, iv)
@@ -197,28 +67,7 @@ class FeedbackDatabase:
             VALUES (?, ?, ?)
         ''', (username, encrypted_data, False))
         self.conn.commit()
-    
-    def _distribute_private_key(self, username, private_key):
-        crypto = self.crypto
-        onedrive_path = crypto.get_onedrive_path()
         
-        if onedrive_path:
-            key_dir = onedrive_path / ".keys"
-            key_dir.mkdir(parents=True, exist_ok=True)
-            key_path = key_dir / f"{username}.pem"
-            
-            try:
-                with open(key_path, "wb") as f:
-                    f.write(private_key.private_bytes(
-                        encoding=serialization.Encoding.PEM,
-                        format=serialization.PrivateFormat.PKCS8,
-                        encryption_algorithm=serialization.NoEncryption()
-                    ))
-            except Exception as e:
-                print(f"Private key distribution failed: {str(e)}")
-        else:
-            print("Could not distribute private key - OneDrive not found")
-            
     def validate_user(self, username, password):
         cursor = self.conn.cursor()
         cursor.execute('''
@@ -363,6 +212,7 @@ class HierarchyValidator:
         finally:
             conn.close()
 
+
 class RegistrationDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -393,25 +243,6 @@ class RegistrationDialog(QDialog):
         password = self.password_input.text()
         confirm = self.confirm_input.text()
 
-        # Check if user exists in hierarchy
-        if not HierarchyValidator.validate_username(username):
-            self.parent().show_hierarchy_error(username)
-            self.reject()
-            return
-
-        # Check if managers have public keys
-        manager_chain = HierarchyValidator.get_manager_chain(username)
-        for manager in manager_chain:
-            if not self.parent().feedback_db.crypto.public_key_exists(manager):
-                QMessageBox.warning(
-                    self,
-                    "Missing Manager Keys",
-                    f"Your manager {manager} has not registered yet.\n"
-                    "Please contact your manager to register first."
-                )
-                self.reject()
-                return
-            
         if self.parent().feedback_db.username_exists(username):
             QMessageBox.warning(self, "Error", "Username already registered")
             return
@@ -519,71 +350,8 @@ class FeedbackLoginWindow(QMainWindow):
                     approval_dialog.exec()
             
             self.open_feedback_interface(username)
-            try:
-                # New key handling
-                self.handle_key_migration(username)
-                
-                # Existing approval check
-                reportees = HierarchyValidator.get_manager_reportees(username)
-                if reportees:
-                    unapproved = self.feedback_db.get_unapproved_reportees(reportees)
-                    if unapproved:
-                        approval_dialog = ApprovalDialog(unapproved, self)
-                        approval_dialog.exec()
-                        
-                self.open_feedback_interface(username)
-                
-            except Exception as e:
-                QMessageBox.critical(
-                    self, 
-                    "Key Error",
-                    f"Login succeeded but key setup failed: {str(e)}\n"
-                    "Some features might not work properly."
-                )
-
         else:
             self.show_error("Invalid credentials")
-
-    def handle_key_migration(self, username):
-        crypto = CryptographyManager()
-        
-        # Get potential key locations
-        local_key = crypto.keys_dir / f"{username}.pem"
-        onedrive_path = crypto.get_onedrive_path()
-        
-        if onedrive_path:
-            target_dir = onedrive_path / ".keys"
-            target_dir.mkdir(exist_ok=True)
-            target_key = target_dir / f"{username}.pem"
-            
-            # Migrate existing local key
-            if local_key.exists():
-                try:
-                    # Move local key to OneDrive
-                    shutil.move(str(local_key), str(target_key))
-                    print(f"Moved key from {local_key} to {target_key}")
-                except Exception as e:
-                    print(f"Key migration failed: {str(e)}")
-                
-            # Generate new key if needed
-            direct, indirect = HierarchyValidator.get_all_reportees(username)
-            if (len(direct) + len(indirect)) > 5 and not target_key.exists():
-                try:
-                    key_bytes = crypto.generate_user_keys(username)
-                    with open(target_key, "wb") as f:
-                        f.write(key_bytes)
-                except Exception as e:
-                    raise Exception(f"Key generation failed: {str(e)}")
-                    
-        elif local_key.exists():
-            # Handle case without OneDrive
-            QMessageBox.warning(
-                self,
-                "Key Storage Warning",
-                "Private key stored locally because OneDrive not found!\n"
-                f"Location: {local_key}"
-            )
-
     def show_hierarchy_error(self, username):
         dialog = QDialog(self)
         dialog.setWindowTitle('Validation Error')
@@ -625,9 +393,7 @@ class FeedbackMainWindow(QMainWindow):
         super().__init__()
         self.username = username
         self.feedback_db = FeedbackDatabase()
-        self.crypto = CryptographyManager()
         self.init_ui()
-        self.handle_key_distribution()
         
     def init_ui(self):
         self.setWindowTitle(f'Feedback System - Welcome {self.username}')
@@ -676,67 +442,7 @@ class FeedbackMainWindow(QMainWindow):
         signout_action.triggered.connect(self.sign_out)
         toolbar.addAction(signout_action)
     
-    def handle_key_distribution(self):
-        onedrive_base = self.crypto.get_onedrive_path()
-        if not onedrive_base:
-            QMessageBox.warning(self, "Key Distribution", 
-                "OneDrive not found! Private key cannot be distributed.")
-            return
         
-        # Create proper .keys directory path
-        key_dir = onedrive_base / ".keys"
-        try:
-            key_dir.mkdir(exist_ok=True, parents=True)
-        except Exception as e:
-            QMessageBox.critical(self, "Directory Error",
-                f"Could not create keys directory: {str(e)}")
-            return
-        
-        key_path = key_dir / f"{self.username}.pem"
-        
-        if not key_path.exists():
-            try:
-                # Generate and save key directly to OneDrive
-                private_key, _ = self.crypto._generate_keys()
-                pem = private_key.private_bytes(
-                    encoding=serialization.Encoding.PEM,
-                    format=serialization.PrivateFormat.PKCS8,
-                    encryption_algorithm=serialization.NoEncryption()
-                )
-                
-                with open(key_path, "wb") as f:
-                    f.write(pem)
-                
-                QMessageBox.information(self, "Key Generated",
-                    f"New encryption key stored in:\n{key_path}")
-            except Exception as e:
-                QMessageBox.critical(self, "Key Error",
-                    f"Failed to generate key: {str(e)}")
-            
-    def distribute_private_key(self):
-        onedrive_path = self.crypto.get_onedrive_path()
-        if not onedrive_path:
-            QMessageBox.warning(self, "Key Distribution", 
-                "OneDrive not found! Private key cannot be distributed.")
-            return
-            
-        key_dir = onedrive_path / ".keys"
-        key_dir.mkdir(exist_ok=True)
-        
-        key_path = key_dir / f"{self.username}.pem"
-        if not key_path.exists():
-            try:
-                # Generate and save key
-                key_bytes = self.feedback_db.crypto.generate_user_keys(self.username)
-                with open(key_path, "wb") as f:
-                    f.write(key_bytes)
-                
-                QMessageBox.information(self, "Key Generated",
-                    f"New encryption key stored in your OneDrive at:\n{key_path}")
-            except Exception as e:
-                QMessageBox.critical(self, "Key Error",
-                    f"Failed to generate key: {str(e)}")
-
     def create_visibility_info(self):
         group_box = QGroupBox("Feedback Visibility Information")
         group_box.setStyleSheet("""
@@ -1000,88 +706,8 @@ class SurveyApp(QDialog):
         if state:
             self.lm_responses[q_id] = value
     
-    # def submit_feedback(self):
-
-    #     # Check if all questions are answered
-    #     missing_questions = [
-    #         qid for qid, response in self.lm_responses.items()
-    #         if response is None
-    #     ]
-        
-    #     if missing_questions:
-    #         QMessageBox.warning(
-    #             self, 
-    #             "Incomplete Feedback",
-    #             "Please answer all mandatory questions before submitting.",
-    #             QMessageBox.Ok
-    #         )
-    #         return
-
-    #     # Check if already submitted
-    #     if not self.attendance_db.mark_submission(self.current_user):
-    #         QMessageBox.warning(self, "Error", "You've already submitted feedback! \n You can only submit once per month.")
-    #         return
-        
-    #     # # Get approval status
-    #     approval_status = self.feedback_db.get_user_status(self.current_user)
-    #     # approval_status = self.parent().feedback_db.get_user_status(self.current_user)
-    #     if approval_status is None:
-    #         approval_status = False
-
-    #     # Get management chain
-    #     manager_chain = HierarchyValidator.get_manager_chain(self.current_user)
-    #     if not manager_chain:
-    #         QMessageBox.warning(self, "Error", "No management chain found!")
-    #         return
-
-    #     conn = sqlite3.connect('feedback.db')
-    #     cursor = conn.cursor()
-        
-
-    #     try:
-    #         cursor.execute('''
-    #             CREATE TABLE IF NOT EXISTS feedback_responses (
-    #                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-    #                 manager TEXT NOT NULL,
-    #                 reportee_type TEXT NOT NULL,
-    #                 question_id TEXT,
-    #                 response INTEGER,
-    #                 general_feedback TEXT,
-    #                 approval_status BOOLEAN NOT NULL,
-    #                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-    #             )
-    #         ''')
-    #         # Modified insertion logic for clarity
-    #         for i, manager in enumerate(manager_chain):
-    #             reportee_type = 'direct' if i == 0 else 'indirect'
-                
-    #             # Insert question responses
-    #             for qid, response in self.lm_responses.items():
-    #                 if response is not None:
-    #                     cursor.execute('''
-    #                         INSERT INTO feedback_responses 
-    #                         (manager, reportee_type, question_id, response, approval_status)
-    #                         VALUES (?, ?, ?, ?, ?)
-    #                     ''', (manager, reportee_type, qid, response, approval_status))
-
-    #             # Insert general feedback
-    #             general_feedback = self.general_feedback_input.toPlainText()
-    #             if general_feedback:
-    #                 cursor.execute('''
-    #                     INSERT INTO feedback_responses 
-    #                     (manager, reportee_type, general_feedback, approval_status)
-    #                     VALUES (?, ?, ?, ?)
-    #                 ''', (manager, reportee_type, general_feedback, approval_status))
-
-    #         conn.commit()
-    #         QMessageBox.information(self, "Success", "Feedback submitted to all relevant managers!")
-    #         self.close()
-    #     except Exception as e:
-    #         QMessageBox.critical(self, "Error", f"Failed to submit feedback: {str(e)}")
-    #     finally:
-    #         conn.close()
-
     def submit_feedback(self):
+
         # Check if all questions are answered
         missing_questions = [
             qid for qid, response in self.lm_responses.items()
@@ -1097,29 +723,16 @@ class SurveyApp(QDialog):
             )
             return
 
-        # Existing validation code remains the same until encryption
-        if missing_questions:
-            QMessageBox.warning(
-                self, 
-                "Incomplete Feedback",
-                "Please answer all mandatory questions before submitting.",
-                QMessageBox.Ok
-            )
-            return
-
         # Check if already submitted
         if not self.attendance_db.mark_submission(self.current_user):
             QMessageBox.warning(self, "Error", "You've already submitted feedback! \n You can only submit once per month.")
             return
-
-        # Get approval status
-        approval_status = self.feedback_db.get_user_status(self.current_user)
         
-        # # Get management chain
-        # manager_chain = HierarchyValidator.get_manager_chain(self.current_user)
-        # if not manager_chain:
-        #     QMessageBox.warning(self, "Error", "No management chain found!")
-        #     return
+        # # Get approval status
+        approval_status = self.feedback_db.get_user_status(self.current_user)
+        # approval_status = self.parent().feedback_db.get_user_status(self.current_user)
+        if approval_status is None:
+            approval_status = False
 
         # Get management chain
         manager_chain = HierarchyValidator.get_manager_chain(self.current_user)
@@ -1127,92 +740,44 @@ class SurveyApp(QDialog):
             QMessageBox.warning(self, "Error", "No management chain found!")
             return
 
-        # Validate all managers have public keys
-        missing_keys = []
-        crypto = self.feedback_db.crypto
-        for manager in manager_chain:
-            pub_key_path = crypto.keys_dir / f"{manager}_public.pem"
-            if not pub_key_path.exists():
-                missing_keys.append(manager)
-        
-        if missing_keys:
-            QMessageBox.critical(
-                self,
-                "Missing Encryption Keys",
-                f"Cannot encrypt feedback for managers without public keys:\n"
-                f"{', '.join(missing_keys)}\n\n"
-                "Please ensure these managers have registered accounts."
-            )
-            return
-
-        # Encrypt responses
-        encrypted_responses = {}
-        for qid, response in self.lm_responses.items():
-            encrypted_responses[qid] = {}
-            for manager in manager_chain:
-                try:
-                    # encrypted = self.feedback_db.crypto.encrypt_data(
-                    #     str(response), 
-                    #     manager
-                    # )
-                    encrypted = base64.b64encode(
-                            self.feedback_db.crypto.encrypt_data(str(response), manager)
-                        ).decode('utf-8')
-                    encrypted_responses[qid][manager] = encrypted
-                except Exception as e:
-                    print(f"Encryption failed for {manager}: {str(e)}")
-                    continue
-
-        # Encrypt general feedback
-        general_feedback = self.general_feedback_input.toPlainText()
-        encrypted_general = {}
-        if general_feedback:
-            for manager in manager_chain:
-                try:
-                    encrypted = self.feedback_db.crypto.encrypt_data(
-                        general_feedback, 
-                        manager
-                    )
-                    encrypted_general[manager] = encrypted
-                except Exception as e:
-                    print(f"General feedback encryption failed for {manager}: {str(e)}")
-                    continue
-
-        # Store encrypted data
         conn = sqlite3.connect('feedback.db')
         cursor = conn.cursor()
         
+
         try:
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS feedback_responses (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    manager TEXT NOT NULL,
+                    reportee_type TEXT NOT NULL,
+                    question_id TEXT,
+                    response INTEGER,
+                    general_feedback TEXT,
+                    approval_status BOOLEAN NOT NULL,
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            # Modified insertion logic for clarity
             for i, manager in enumerate(manager_chain):
                 reportee_type = 'direct' if i == 0 else 'indirect'
                 
                 # Insert question responses
-                for qid, encrypted_data in encrypted_responses.items():
-                    if manager in encrypted_data:
+                for qid, response in self.lm_responses.items():
+                    if response is not None:
                         cursor.execute('''
                             INSERT INTO feedback_responses 
                             (manager, reportee_type, question_id, response, approval_status)
                             VALUES (?, ?, ?, ?, ?)
-                        ''', (
-                            manager, 
-                            reportee_type,
-                            qid,
-                            encrypted_data[manager],  # Store binary data
-                            approval_status
-                        ))
+                        ''', (manager, reportee_type, qid, response, approval_status))
 
                 # Insert general feedback
-                if manager in encrypted_general:
+                general_feedback = self.general_feedback_input.toPlainText()
+                if general_feedback:
                     cursor.execute('''
                         INSERT INTO feedback_responses 
                         (manager, reportee_type, general_feedback, approval_status)
                         VALUES (?, ?, ?, ?)
-                    ''', (
-                        manager,
-                        reportee_type,
-                        encrypted_general[manager],
-                        approval_status
-                    ))
+                    ''', (manager, reportee_type, general_feedback, approval_status))
 
             conn.commit()
             QMessageBox.information(self, "Success", "Feedback submitted to all relevant managers!")
@@ -1332,7 +897,7 @@ class FeedbackAnalysisDialog(QDialog):
 
             # Load responses with proper approval filtering
             responses_query = """
-                SELECT id reportee_type, question_id, response 
+                SELECT reportee_type, question_id, response 
                 FROM feedback_responses
                 WHERE manager = ? 
                 AND (approval_status = 1 OR ? = 1)
@@ -1342,40 +907,6 @@ class FeedbackAnalysisDialog(QDialog):
                 responses_query, conn, 
                 params=(self.username, int(self.include_unapproved)))
             
-            # New decryption step
-            if not self.responses_df.empty:
-                self.responses_df['decrypted'] = self.responses_df.apply(
-                    self.decrypt_response, axis=1
-                )
-                # Handle decryption failures
-                failed_decrypts = self.responses_df['decrypted'].isna().sum()
-                if failed_decrypts > 0:
-                    QMessageBox.warning(
-                        self, 
-                        "Decryption Issues",
-                        f"Could not decrypt {failed_decrypts} responses. "
-                        "You might lack necessary permissions or keys."
-                    )
-                
-                # # Convert to numeric values
-                # self.responses_df['response'] = pd.to_numeric(
-                #     self.responses_df['decrypted'], 
-                #     errors='coerce'
-                # )
-            # After loading responses_df:
-            
-            if not self.responses_df.empty:
-                # Convert responses to numeric AFTER decryption
-                self.responses_df['response'] = pd.to_numeric(
-                    self.responses_df['decrypted'], 
-                    errors='coerce'
-                )
-                # Remove invalid responses
-                self.responses_df = self.responses_df.dropna(subset=['response'])
-                # Convert to percentage
-                self.responses_df['response_pct'] = (
-                    (self.responses_df['response'] - 1) / 3 * 100
-                )
             print(f"Loaded {len(self.responses_df)} responses")  # Debug
             
                     
@@ -1468,27 +999,7 @@ class FeedbackAnalysisDialog(QDialog):
         finally:
             if 'conn' in locals():
                 conn.close()
-
-    def decrypt_response(self, row):
-        try:
-            # Decode base64 if stored as text
-            encrypted_data = base64.b64decode(row['response'])
-            return self.feedback_db.crypto.decrypt_data(
-                encrypted_data,  # Use decoded bytes
-                self.username
-            )
-        except Exception as e:
-            print(f"Decryption failed for response ID {row['id']}: {str(e)}")
-            return None
-
-        # try:
-        #     return self.feedback_db.crypto.decrypt_data(
-        #         row['response'],  # Encrypted bytes from DB
-        #         self.username    # Current analyst
-        #     )
-        # except Exception as e:
-        #     print(f"Decryption failed for response {row['id']}: {str(e)}")
-        #     return None   
+            
 
     def convert_to_percentage(self, series):
         """Convert 1-4 scale to 0-100% scale"""
@@ -1919,41 +1430,3 @@ if __name__ == '__main__':
     window = FeedbackLoginWindow()
     window.show()
     app.exec()
-
-
-#############
-# # Add visibility information
-# visibility_info = self.create_visibility_info()
-# layout.addWidget(visibility_info)
-
-###########################
-# # In HierarchyValidator class
-# @staticmethod
-# def get_all_reportees(manager_username):
-#     conn = sqlite3.connect('hierarchy.db')
-#     cursor = conn.cursor()
-    
-#     try:
-#         cursor.execute('SELECT id FROM employees WHERE name = ?', (manager_username,))
-#         manager_id = cursor.fetchone()[0]
-        
-#         cursor.execute('''
-#             WITH RECURSIVE subordinates AS (
-#                 SELECT id, manager_id, 1 as level
-#                 FROM employees
-#                 WHERE manager_id = ?
-#                 UNION ALL
-#                 SELECT e.id, e.manager_id, s.level + 1
-#                 FROM employees e
-#                 INNER JOIN subordinates s ON e.manager_id = s.id
-#             )
-#             SELECT COUNT(*) FROM subordinates
-#         ''', (manager_id,))
-        
-#         total_reportees = cursor.fetchone()[0]
-#         return total_reportees
-        
-#     except Exception as e:
-#         return 0
-#     finally:
-#         conn.close()
