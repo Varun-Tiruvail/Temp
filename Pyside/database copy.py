@@ -2,11 +2,9 @@ import sqlite3
 from PySide6.QtWidgets import *
 from PySide6.QtCore import *
 from PySide6.QtGui import *
-from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.hazmat.primitives import serialization
 
 class EmployeeDatabase:
-
+    
     def __init__(self):
         self.conn = sqlite3.connect('hierarchy.db')
         self.conn.execute("PRAGMA foreign_keys = ON")  # Enable foreign key constraints
@@ -65,7 +63,6 @@ class HierarchyWindow(QMainWindow):
         self.db = EmployeeDatabase()
         self.init_ui()
         self.load_data()
-        
 
     def init_ui(self):
         self.setWindowTitle('Employee Hierarchy Manager')
@@ -110,74 +107,6 @@ class HierarchyWindow(QMainWindow):
         edit_button.clicked.connect(self.update_employee)
         delete_button.clicked.connect(self.delete_employee)
         self.tree_view.selectionModel().selectionChanged.connect(self.load_employee_data)
-        
-        generate_keys_btn = QPushButton('Generate Organizational Keys')
-        generate_keys_btn.clicked.connect(self.generate_rsa_keys)
-        form_layout.addWidget(generate_keys_btn)
-
-
-    def generate_rsa_keys(self):
-        """Generate keys for all managers with >5 reportees"""
-        conn = sqlite3.connect('hierarchy.db')
-        cursor = conn.cursor()
-        
-        try:
-            # Get all employees
-            cursor.execute('SELECT id, name FROM employees')
-            employees = cursor.fetchall()
-            
-            for emp_id, emp_name in employees:
-                # Get reportees using recursive query
-                cursor.execute('''
-                    WITH RECURSIVE subordinates AS (
-                        SELECT id, name, manager_id, 1 as level
-                        FROM employees
-                        WHERE manager_id = ?
-                        UNION ALL
-                        SELECT e.id, e.name, e.manager_id, s.level + 1
-                        FROM employees e
-                        INNER JOIN subordinates s ON e.manager_id = s.id
-                    )
-                    SELECT COUNT(*) FROM subordinates
-                ''', (emp_id,))
-                
-                total_reportees = cursor.fetchone()[0]
-                
-                if total_reportees > 5:
-                    # Generate key pair
-                    private_key = rsa.generate_private_key(
-                        public_exponent=65537,
-                        key_size=2048
-                    )
-                    
-                    # Save private key with username as password
-                    private_pem = private_key.private_bytes(
-                        encoding=serialization.Encoding.PEM,
-                        format=serialization.PrivateFormat.PKCS8,
-                        encryption_algorithm=serialization.BestAvailableEncryption(
-                            emp_name.encode()
-                        )
-                    )
-                    with open(f"{emp_name}.pem", "wb") as f:
-                        f.write(private_pem)
-                    
-                    # Save public key to app directory
-                    public_key = private_key.public_key()
-                    public_pem = public_key.public_bytes(
-                        encoding=serialization.Encoding.PEM,
-                        format=serialization.PublicFormat.SubjectPublicKeyInfo
-                    )
-                    with open(f"{emp_name}_public.pem", "wb") as f:
-                        f.write(public_pem)
-            
-            QMessageBox.information(self, "Success", 
-                "RSA keys generated for managers with >5 reportees")
-                
-        except Exception as e:
-            QMessageBox.critical(self, "Key Generation Error", 
-                f"Failed to generate keys: {str(e)}")
-        finally:
-            conn.close()
 
     def load_data(self):
         self.model.clear()
